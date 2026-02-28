@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login - CS2 Skin Tracker</title>
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    .auth-container {
+      max-width: 400px;
+      margin: 80px auto;
+      padding: 30px;
+      background: var(--card-bg, #1a1a2e);
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+    .auth-container h1 {
+      text-align: center;
+      margin-bottom: 24px;
+      color: #fff;
+    }
+    .auth-form .form-group {
+      margin-bottom: 16px;
+    }
+    .auth-form label {
+      display: block;
+      margin-bottom: 6px;
+      color: #ccc;
+      font-size: 14px;
+    }
+    .auth-form input {
+      width: 100%;
+      padding: 10px 12px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 8px;
+      color: #fff;
+      font-size: 14px;
+      box-sizing: border-box;
+    }
+    .auth-form input:focus {
+      outline: none;
+      border-color: #4ecdc4;
+    }
+    .auth-btn {
+      width: 100%;
+      padding: 12px;
+      background: linear-gradient(135deg, #4ecdc4, #44a08d);
+      border: none;
+      border-radius: 8px;
+      color: #fff;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 8px;
+    }
+    .auth-btn:hover {
+      opacity: 0.9;
+    }
+    .auth-switch {
+      text-align: center;
+      margin-top: 16px;
+      color: #888;
+    }
+    .auth-switch a {
+      color: #4ecdc4;
+      text-decoration: none;
+    }
+    .auth-error {
+      background: rgba(255, 77, 77, 0.15);
+      border: 1px solid rgba(255, 77, 77, 0.3);
+      color: #ff6b6b;
+      padding: 10px;
+      border-radius: 8px;
+      margin-bottom: 16px;
+      display: none;
+      text-align: center;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <div class="auth-container">
+    <h1 id="authTitle">Login</h1>
+    <div class="auth-error" id="authError"></div>
+
+    <form class="auth-form" id="authForm">
+      <div class="form-group" id="emailGroup" style="display:none;">
+        <label for="email">Email</label>
+        <input type="email" id="email" placeholder="Enter your email">
+      </div>
+      <div class="form-group">
+        <label for="username">Username</label>
+        <input type="text" id="username" placeholder="Enter your username" required>
+      </div>
+      <div class="form-group">
+        <label for="password">Password</label>
+        <input type="password" id="password" placeholder="Enter your password" required>
+      </div>
+      <button type="submit" class="auth-btn" id="authBtn">Login</button>
+    </form>
+
+    <p class="auth-switch" id="authSwitch">
+      Don't have an account? <a href="#" id="toggleAuth">Sign up</a>
+    </p>
+  </div>
+
+  <script>
+    const API_URL = 'http://localhost:3001/api';
+    let isLogin = true;
+
+    const form = document.getElementById('authForm');
+    const title = document.getElementById('authTitle');
+    const btn = document.getElementById('authBtn');
+    const toggle = document.getElementById('toggleAuth');
+    const switchText = document.getElementById('authSwitch');
+    const emailGroup = document.getElementById('emailGroup');
+    const errorDiv = document.getElementById('authError');
+
+    toggle.addEventListener('click', (e) => {
+      e.preventDefault();
+      isLogin = !isLogin;
+
+      if (isLogin) {
+        title.textContent = 'Login';
+        btn.textContent = 'Login';
+        switchText.innerHTML = 'Don\'t have an account? <a href="#" id="toggleAuth">Sign up</a>';
+        emailGroup.style.display = 'none';
+      } else {
+        title.textContent = 'Sign Up';
+        btn.textContent = 'Create Account';
+        switchText.innerHTML = 'Already have an account? <a href="#" id="toggleAuth">Login</a>';
+        emailGroup.style.display = 'block';
+      }
+
+      // Re-attach toggle listener
+      document.getElementById('toggleAuth').addEventListener('click', arguments.callee.bind(null, e));
+      errorDiv.style.display = 'none';
+    });
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      errorDiv.style.display = 'none';
+
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value;
+      const email = document.getElementById('email').value.trim();
+
+      try {
+        const endpoint = isLogin ? '/login' : '/register';
+        const body = isLogin ? { username, password } : { username, email, password };
+
+        const res = await fetch(API_URL + endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify(body)
+        });
+
+        const data = await res.json();
+
+        if (!res.ok) {
+          errorDiv.textContent = data.error;
+          errorDiv.style.display = 'block';
+          return;
+        }
+
+        // Success - redirect to profile
+        window.location.href = 'profile.html';
+      } catch (err) {
+        errorDiv.textContent = 'Connection failed. Is the server running?';
+        errorDiv.style.display = 'block';
+      }
+    });
+
+    // Check if already logged in
+    fetch(API_URL + '/me', { credentials: 'include' })
+      .then(res => res.json())
+      .then(data => {
+        if (data.user) window.location.href = 'profile.html';
+      })
+      .catch(() => {});
+  </script>
+</body>
+</html>
