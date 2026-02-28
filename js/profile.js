@@ -129,7 +129,10 @@ function createTrackedItemCard(item) {
 
       <div class="tracked-item-actions">
         <button class="btn-edit" onclick="openEditModal('${item.skinId}')">Edit</button>
-        <button class="btn-delete" onclick="confirmDelete('${item.skinId}')">Delete</button>
+        ${item.status === 'cancelled' ? 
+          `<button class="btn-delete" onclick="deleteItem('${item.skinId}')">Remove</button>` :
+          `<button class="btn-delete" onclick="confirmDelete('${item.skinId}')">Cancel</button>`
+          }
       </div>
     </div>
   `;
@@ -347,11 +350,23 @@ function confirmDelete(itemId) {
   const item = trackedItems.find(i => i.skinId === itemId);
   if (!item) return;
 
-  const confirmed = confirm(`Are you sure you want to delete "${item.weaponName} | ${item.skinName}" from your tracking list?`);
+  const action = confirm(`Cancel tracking "${item.weaponName} | ${item.skinName}"?\n\nOK = Cancel tracking\nCancel = Keep tracking`);
 
-  if (confirmed) {
-    deleteItem(itemId);
+  if (action) {
+    cancelItem(itemId);
   }
+}
+
+function cancelItem(itemId) {
+  const itemIndex = trackedItems.findIndex(item => item.skinId === itemId);
+  if (itemIndex === -1) return;
+
+  trackedItems[itemIndex].status = 'cancelled';
+  localStorage.setItem('trackedItems', JSON.stringify(trackedItems));
+
+  showToast('Tracking cancelled');
+  updateStats();
+  renderTrackedItems();
 }
 
 function deleteItem(itemId) {
@@ -388,25 +403,7 @@ async function loadSkinportMatches() {
 
   if (!container) return;
 
-  // Check if API credentials are configured
-  if (!hasCredentials()) {
-    container.innerHTML = `
-      <div class="skinport-settings-prompt">
-        <h3>Configure Skinport API</h3>
-        <p>To see real-time price matches, please configure your Skinport API credentials.</p>
-        <button class="btn-primary" id="showSkinportSettings">Configure Now</button>
-      </div>
-    `;
-
-    const settingsBtn = container.querySelector('#showSkinportSettings');
-    if (settingsBtn) {
-      settingsBtn.addEventListener('click', showSkinportSettingsModal);
-    }
-    return;
-  }
-
-  // Only check for tracking items
-  const trackingItems = trackedItems.filter(item => item.status === 'tracking');
+  const trackingItems = trackedItems.filter(item => item.status === 'tracking' || item.status === 'found');
 
   if (trackingItems.length === 0) {
     container.innerHTML = `
@@ -417,8 +414,30 @@ async function loadSkinportMatches() {
     return;
   }
 
-  // Display matches
-  await displayAllMatches(trackingItems, container);
+  container.innerHTML = `
+    <div class="listings-empty">
+      <p>Searching Skinport for matches...</p>
+    </div>
+  `;
+
+  // Display matches and get results
+  const matchResults = await getAndDisplayMatches(trackingItems, container);
+
+  // Auto-update status based on matches
+  if (matchResults) {
+    let updated = false;
+    for (const item of trackedItems) {
+      if (item.status === 'tracking' && matchResults[item.skinId] && matchResults[item.skinId].length > 0) {
+        item.status = 'found';
+        updated = true;
+      }
+    }
+    if (updated) {
+      localStorage.setItem('trackedItems', JSON.stringify(trackedItems));
+      updateStats();
+      renderTrackedItems();
+    }
+  }
 }
 
 function showSkinportSettingsModal() {

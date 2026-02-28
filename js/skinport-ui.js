@@ -29,7 +29,8 @@ function createSkinportListingCard(item) {
   const wear = extractWear(item.market_hash_name);
 
   // Item URL
-  const itemUrl = getSkinportItemUrl(item.market_hash_name);
+  const itemUrl = item.item_page || item.market_page || getSkinportItemUrl(item.market_hash_name);
+
 
   card.innerHTML = `
     <div class="listing-header">
@@ -156,7 +157,7 @@ async function displayListingsForItem(trackedItem, container) {
  * @param {Array} trackedItems - Array of tracked items
  * @param {HTMLElement} container - Container element
  */
-async function displayAllMatches(trackedItems, container) {
+async function getAndDisplayMatches(trackedItems, container) {
   container.innerHTML = '<div class="matches-loading">Checking for matches on Skinport...</div>';
 
   try {
@@ -171,7 +172,7 @@ async function displayAllMatches(trackedItems, container) {
           <p>No items matching your tracking criteria are currently available on Skinport.</p>
         </div>
       `;
-      return;
+      return matchResults;
     }
 
     container.innerHTML = '';
@@ -227,7 +228,7 @@ async function displayAllMatches(trackedItems, container) {
 
       container.appendChild(section);
     }
-
+    return matchResults;
   } catch (error) {
     console.error('Error displaying matches:', error);
     container.innerHTML = `
@@ -236,6 +237,7 @@ async function displayAllMatches(trackedItems, container) {
         <p>Failed to check Skinport for matches. Please try again later.</p>
       </div>
     `;
+    return null;
   }
 }
 

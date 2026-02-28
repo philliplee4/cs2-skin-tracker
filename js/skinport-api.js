@@ -13,7 +13,7 @@ const SKINPORT_CONFIG = {
 // Cache for API responses to minimize requests
 let itemsCache = null;
 let itemsCacheTimestamp = null;
-const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+const CACHE_DURATION = 15 * 60 * 1000; // 15 minutes
 
 // ============================================
 // API Authentication & Request Helpers
@@ -79,10 +79,15 @@ async function fetchSkinportItems() {
       method: 'GET'
     });
 
-    itemsCache = data;
-    itemsCacheTimestamp = now;
-
-    return data;
+    if (Array.isArray(data)) {
+      itemsCache = data;
+      itemsCacheTimestamp = now;
+      return data;
+    } else {
+      console.error('Skinport API returned unexpected data:', data);
+      if (itemsCache) return itemsCache;
+      throw new Error('Invalid API response');
+    }
   } catch (error) {
     console.error('Error fetching Skinport items:', error);
     // Return cached data if available, even if expired
@@ -303,8 +308,8 @@ function priceMatches(item, criteria) {
     return true; // Include items without price data
   }
 
-  // Convert to dollars (Skinport prices are in cents)
-  const priceInDollars = price / 100;
+  
+  const priceInDollars = price; 
 
   if (criteria.minPrice && priceInDollars < criteria.minPrice) {
     return false;
@@ -320,9 +325,9 @@ function priceMatches(item, criteria) {
 /**
  * Format price from Skinport API (cents to dollars)
  */
-function formatPrice(priceInCents) {
-  if (!priceInCents) return 'N/A';
-  return `$${(priceInCents / 100).toFixed(2)}`;
+function formatPrice(price) {
+  if (!price) return 'N/A';
+  return `$${price.toFixed(2)}`;
 }
 
 /**
@@ -363,9 +368,9 @@ async function checkAllTrackedItems(trackedItems) {
 
     // Check each tracked item
     for (const item of trackedItems) {
-      if (item.status !== 'tracking') {
-        continue; // Skip non-active items
-      }
+      if (item.status !== 'tracking' && item.status !== 'found') {
+        continue;
+      } 
 
       const matches = await findMatchingListings(item);
       if (matches.length > 0) {
