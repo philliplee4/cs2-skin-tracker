@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CS2 Skin Details</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+
+<body>
+
+<header class="main-header">
+  <div class="logo"><img src="images/logo.png" alt="Site Logo"></div>
+
+  <nav class="navbar">
+    <a href="index.html" class="nav-link">Home</a>
+
+    <div class="nav-dropdown">
+      <a href="#" class="nav-link dropdown-trigger" data-category="pistol">Pistols</a>
+      <div class="dropdown-menu" id="dropdown-pistol"></div>
+    </div>
+
+    <div class="nav-dropdown">
+      <a href="#" class="nav-link dropdown-trigger" data-category="smg">Mid-Tier</a>
+      <div class="dropdown-menu" id="dropdown-smg"></div>
+    </div>
+
+    <div class="nav-dropdown">
+      <a href="#" class="nav-link dropdown-trigger" data-category="rifle">Rifles</a>
+      <div class="dropdown-menu" id="dropdown-rifle"></div>
+    </div>
+
+    <div class="nav-dropdown">
+      <a href="#" class="nav-link dropdown-trigger" data-category="knife">Knives</a>
+      <div class="dropdown-menu" id="dropdown-knife"></div>
+    </div>
+
+    <div class="nav-dropdown">
+      <a href="#" class="nav-link dropdown-trigger" data-category="gloves">Gloves</a>
+      <div class="dropdown-menu" id="dropdown-gloves"></div>
+    </div>
+
+    <input type="text" placeholder="Search items" id="searchBar" />
+    <a href="#" class="nav-link">How it works</a>
+
+  </nav>
+
+  <!-- PROFILE PAGE BUTTON -->
+  <div class="avatar">
+    <a href="profile.html">
+      <img src="images/avatar.png" alt="User avatar" id="avatarBtn" />
+    </a>
+  </div>
+</header>
+
+<main>
+  <!-- Item Details Section -->
+  <section class="item-detail">
+    <div class="item-container">
+
+      <!-- Left: Image & Basic Info -->
+      <div class="item-image-section">
+        <div class="item-image-wrapper">
+          <img id="itemImage" src="" alt="Item Image" />
+        </div>
+        <div class="item-badges">
+          <span id="itemRarity" class="rarity"></span>
+          <span id="itemStattrak" class="stattrak hidden"></span>
+        </div>
+      </div>
+
+      <!-- Right: Details -->
+      <div class="item-info-section">
+        <p class="weapon-type-large" id="weaponType"></p>
+        <h1 class="skin-name-large" id="skinName"></h1>
+
+        <div class="item-details">
+          <div class="detail-row">
+            <span class="detail-label">Category:</span>
+            <span class="detail-value" id="itemCategory"></span>
+          </div>
+
+          <div class="detail-row" id="collectionRow">
+            <span class="detail-label">Collection:</span>
+            <span class="detail-value" id="itemCollection"></span>
+          </div>
+
+          <div class="detail-row" id="wearRangeRow">
+            <span class="detail-label">Wear Range:</span>
+            <span class="detail-value" id="itemWearRange"></span>
+          </div>
+
+          <div class="detail-row" id="descriptionRow">
+            <span class="detail-label">Description:</span>
+            <span class="detail-value" id="itemDescription"></span>
+          </div>
+        </div>
+
+        <div class="item-actions">
+          <button class="btn-primary" id="trackItemBtn">📊 Track This Item</button>
+          <button class="btn-secondary" onclick="window.history.back()">← Back to Browse</button>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- Tracking Modal -->
+  <div id="trackingModal" class="modal hidden">
+    <div class="modal-overlay"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Track Item</h2>
+        <button class="modal-close" id="closeModal">&times;</button>
+      </div>
+
+      <div class="modal-body">
+        <!-- Item Preview -->
+        <div class="track-item-preview">
+          <img id="modalItemImage" src="" alt="Item">
+          <div class="track-item-info">
+            <p class="modal-weapon-type" id="modalWeaponType"></p>
+            <h3 class="modal-skin-name" id="modalSkinName"></h3>
+          </div>
+        </div>
+
+        <!-- Tracking Form -->
+        <form id="trackingForm">
+
+          <!-- Price Range -->
+          <div class="form-section">
+            <h4>Target Price Range</h4>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="minPrice">Min Price ($)</label>
+                <input type="number" id="minPrice" name="minPrice" min="0" step="0.01" placeholder="0.00">
+              </div>
+              <div class="form-group">
+                <label for="maxPrice">Max Price ($)</label>
+                <input type="number" id="maxPrice" name="maxPrice" min="0" step="0.01" placeholder="Any">
+              </div>
+            </div>
+          </div>
+
+          <!-- Wear Condition -->
+          <div class="form-section">
+            <h4>Wear Condition</h4>
+            <div class="radio-group">
+              <label class="radio-option">
+                <input type="radio" name="wearType" value="any" checked>
+                <span>Any Condition</span>
+              </label>
+              <label class="radio-option">
+                <input type="radio" name="wearType" value="preset">
+                <span>Preset Condition</span>
+              </label>
+              <label class="radio-option">
+                <input type="radio" name="wearType" value="custom">
+                <span>Custom Float Range</span>
+              </label>
+            </div>
+
+            <!-- Preset Wear Conditions -->
+            <div id="presetWearSection" class="conditional-section hidden">
+              <select id="presetWear" name="presetWear">
+                <option value="">Select Condition</option>
+                <option value="fn">Factory New (0.00 - 0.07)</option>
+                <option value="mw">Minimal Wear (0.07 - 0.15)</option>
+                <option value="ft">Field-Tested (0.15 - 0.38)</option>
+                <option value="ww">Well-Worn (0.38 - 0.45)</option>
+                <option value="bs">Battle-Scarred (0.45 - 1.00)</option>
+              </select>
+            </div>
+
+            <!-- Custom Float Range -->
+            <div id="customWearSection" class="conditional-section hidden">
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="minFloat">Min Float</label>
+                  <input type="number" id="minFloat" name="minFloat" min="0" max="1" step="0.001" placeholder="0.000">
+                </div>
+                <div class="form-group">
+                  <label for="maxFloat">Max Float</label>
+                  <input type="number" id="maxFloat" name="maxFloat" min="0" max="1" step="0.001" placeholder="1.000">
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- StatTrak -->
+          <div class="form-section" id="stattrakSection">
+            <h4>StatTrak™</h4>
+            <div class="radio-group">
+              <label class="radio-option">
+                <input type="radio" name="stattrak" value="any" checked>
+                <span>Any (With or Without)</span>
+              </label>
+              <label class="radio-option">
+                <input type="radio" name="stattrak" value="required">
+                <span>Required</span>
+              </label>
+              <label class="radio-option">
+                <input type="radio" name="stattrak" value="none">
+                <span>No StatTrak</span>
+              </label>
+            </div>
+          </div>
+
+          <!-- Pattern Number -->
+          <div class="form-section">
+            <h4>Pattern Number (Optional)</h4>
+            <input type="text" id="patternNumber" name="patternNumber" placeholder="e.g., 661 (Blue Gem)" class="full-width">
+            <p class="form-hint">Leave empty for any pattern</p>
+          </div>
+
+          <!-- Notes -->
+          <div class="form-section">
+            <h4>Notes (Optional)</h4>
+            <textarea id="notes" name="notes" rows="3" placeholder="Add any additional notes about this item..."></textarea>
+          </div>
+
+          <!-- Form Actions -->
+          <div class="modal-actions">
+            <button type="button" class="btn-secondary" id="cancelTrack">Cancel</button>
+            <button type="submit" class="btn-primary">Start Tracking</button>
+          </div>
+
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Related Skins Section -->
+  <section class="content">
+    <h2>More from <span id="relatedWeaponName"></span></h2>
+    <div class="grid" id="relatedSkinsGrid"></div>
+  </section>
+</main>
+
+<footer>
+  <p>© 2025 CS2 Item Tracker | All rights reserved</p>
+</footer>
+
+<!-- ✅ SHARED API MODULE -->
+<script src="js/api.js"></script>
+<!-- ✅ SHARED NAVIGATION -->
+<script src="js/navigation.js" defer></script>
+<!-- ✅ ITEM PAGE SCRIPT -->
+<script src="js/item.js" defer></script>
+
+</body>
+</html>

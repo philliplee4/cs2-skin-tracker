@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>My Profile - CS2 Skin Tracker</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/skinport.css" />
+</head>
+
+<body>
+
+<header class="main-header">
+  <div class="logo"><img src="images/logo.png" alt="Site Logo"></div>
+
+  <nav class="navbar">
+    <a href="index.html" class="nav-link">Home</a>
+
+    <div class="nav-dropdown">
+      <a href="#" class="nav-link dropdown-trigger" data-category="pistol">Pistols</a>
+      <div class="dropdown-menu" id="dropdown-pistol"></div>
+    </div>
+
+    <div class="nav-dropdown">
+      <a href="#" class="nav-link dropdown-trigger" data-category="smg">Mid-Tier</a>
+      <div class="dropdown-menu" id="dropdown-smg"></div>
+    </div>
+
+    <div class="nav-dropdown">
+      <a href="#" class="nav-link dropdown-trigger" data-category="rifle">Rifles</a>
+      <div class="dropdown-menu" id="dropdown-rifle"></div>
+    </div>
+
+    <div class="nav-dropdown">
+      <a href="#" class="nav-link dropdown-trigger" data-category="knife">Knives</a>
+      <div class="dropdown-menu" id="dropdown-knife"></div>
+    </div>
+
+    <div class="nav-dropdown">
+      <a href="#" class="nav-link dropdown-trigger" data-category="gloves">Gloves</a>
+      <div class="dropdown-menu" id="dropdown-gloves"></div>
+    </div>
+
+    <input type="text" placeholder="Search items" id="searchBar" />
+    <a href="#" class="nav-link">How it works</a>
+
+  </nav>
+
+  <!-- PROFILE PAGE BUTTON -->
+  <div class="avatar">
+    <img src="images/avatar.png" alt="User avatar" id="avatarBtn" />
+  </div>
+</header>
+
+<main>
+  <section class="profile-hero">
+    <div class="profile-header">
+      <div class="profile-info">
+        <img src="images/avatar.png" alt="Profile Avatar" class="profile-avatar-large">
+        <div>
+          <h1>My Profile</h1>
+          <p class="profile-subtitle">Manage your tracked CS2 items</p>
+        </div>
+      </div>
+      <div class="profile-stats">
+        <div class="stat-card">
+          <span class="stat-number" id="totalTracked">0</span>
+          <span class="stat-label">Tracked Items</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-number stat-found" id="totalFound">0</span>
+          <span class="stat-label">Found</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-number stat-tracking" id="totalTracking">0</span>
+          <span class="stat-label">Tracking</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-number stat-cancelled" id="totalCancelled">0</span>
+          <span class="stat-label">Cancelled</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="profile-content">
+    <!-- Skinport Matches Section -->
+    <div class="skinport-section">
+      <div class="section-header">
+        <h2>Skinport Matches</h2>
+        <button class="btn-secondary" id="refreshMatches">Refresh</button>
+      </div>
+      <div id="skinportMatchesContainer">
+        <!-- Skinport matches will be populated by JavaScript -->
+      </div>
+    </div>
+
+    <div class="content-header">
+      <h2>Tracked Items</h2>
+      <div class="filter-buttons">
+        <button class="filter-btn active" data-filter="all">All</button>
+        <button class="filter-btn" data-filter="found">Found</button>
+        <button class="filter-btn" data-filter="tracking">Tracking</button>
+        <button class="filter-btn" data-filter="cancelled">Cancelled</button>
+      </div>
+    </div>
+
+    <div id="trackedItemsContainer" class="tracked-items-grid">
+      <!-- Items will be populated by JavaScript -->
+    </div>
+
+    <div id="emptyState" class="empty-state hidden">
+      <h3>No Tracked Items Yet</h3>
+      <p>Start tracking items by browsing the catalog and clicking "Track This Item"</p>
+      <a href="index.html" class="btn-primary">Browse Items</a>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <p>© 2025 CS2 Item Tracker | All rights reserved</p>
+</footer>
+
+<!-- Edit Modal -->
+<div id="editModal" class="modal hidden">
+  <div class="modal-overlay"></div>
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2>Edit Tracked Item</h2>
+      <button class="modal-close" id="closeEditModal">&times;</button>
+    </div>
+
+    <div class="modal-body">
+      <!-- Item Preview -->
+      <div class="track-item-preview">
+        <img id="editModalImage" src="" alt="Item">
+        <div class="track-item-info">
+          <p class="modal-weapon-type" id="editModalWeapon"></p>
+          <h3 class="modal-skin-name" id="editModalSkin"></h3>
+        </div>
+      </div>
+
+      <!-- Edit Form (same as tracking form) -->
+      <form id="editForm">
+        <input type="hidden" id="editItemId" name="itemId">
+
+        <!-- Status -->
+        <div class="form-section">
+          <h4>Status</h4>
+          <div class="radio-group">
+            <label class="radio-option">
+              <input type="radio" name="status" value="tracking" checked>
+              <span>🟡 Tracking</span>
+            </label>
+            <label class="radio-option">
+              <input type="radio" name="status" value="found">
+              <span>🟢 Found</span>
+            </label>
+            <label class="radio-option">
+              <input type="radio" name="status" value="cancelled">
+              <span>🔴 Cancelled</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Price Range -->
+        <div class="form-section">
+          <h4>Target Price Range</h4>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="editMinPrice">Min Price ($)</label>
+              <input type="number" id="editMinPrice" name="minPrice" min="0" step="0.01" placeholder="0.00">
+            </div>
+            <div class="form-group">
+              <label for="editMaxPrice">Max Price ($)</label>
+              <input type="number" id="editMaxPrice" name="maxPrice" min="0" step="0.01" placeholder="Any">
+            </div>
+          </div>
+        </div>
+
+        <!-- Wear Condition -->
+        <div class="form-section">
+          <h4>Wear Condition</h4>
+          <div class="radio-group">
+            <label class="radio-option">
+              <input type="radio" name="wearType" value="any" checked>
+              <span>Any Condition</span>
+            </label>
+            <label class="radio-option">
+              <input type="radio" name="wearType" value="preset">
+              <span>Preset Condition</span>
+            </label>
+            <label class="radio-option">
+              <input type="radio" name="wearType" value="custom">
+              <span>Custom Float Range</span>
+            </label>
+          </div>
+
+          <div id="editPresetWearSection" class="conditional-section hidden">
+            <select id="editPresetWear" name="presetWear">
+              <option value="">Select Condition</option>
+              <option value="fn">Factory New (0.00 - 0.07)</option>
+              <option value="mw">Minimal Wear (0.07 - 0.15)</option>
+              <option value="ft">Field-Tested (0.15 - 0.38)</option>
+              <option value="ww">Well-Worn (0.38 - 0.45)</option>
+              <option value="bs">Battle-Scarred (0.45 - 1.00)</option>
+            </select>
+          </div>
+
+          <div id="editCustomWearSection" class="conditional-section hidden">
+            <div class="form-row">
+              <div class="form-group">
+                <label for="editMinFloat">Min Float</label>
+                <input type="number" id="editMinFloat" name="minFloat" min="0" max="1" step="0.001" placeholder="0.000">
+              </div>
+              <div class="form-group">
+                <label for="editMaxFloat">Max Float</label>
+                <input type="number" id="editMaxFloat" name="maxFloat" min="0" max="1" step="0.001" placeholder="1.000">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- StatTrak -->
+        <div class="form-section" id="editStattrakSection">
+          <h4>StatTrak™</h4>
+          <div class="radio-group">
+            <label class="radio-option">
+              <input type="radio" name="stattrak" value="any" checked>
+              <span>Any (With or Without)</span>
+            </label>
+            <label class="radio-option">
+              <input type="radio" name="stattrak" value="required">
+              <span>Required</span>
+            </label>
+            <label class="radio-option">
+              <input type="radio" name="stattrak" value="none">
+              <span>No StatTrak</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Pattern Number -->
+        <div class="form-section">
+          <h4>Pattern Number (Optional)</h4>
+          <input type="text" id="editPatternNumber" name="patternNumber" placeholder="e.g., 661 (Blue Gem)" class="full-width">
+        </div>
+
+        <!-- Notes -->
+        <div class="form-section">
+          <h4>Notes (Optional)</h4>
+          <textarea id="editNotes" name="notes" rows="3" placeholder="Add any additional notes..."></textarea>
+        </div>
+
+        <!-- Form Actions -->
+        <div class="modal-actions">
+          <button type="button" class="btn-secondary" id="cancelEdit">Cancel</button>
+          <button type="submit" class="btn-primary">Save Changes</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ✅ SHARED API MODULE -->
+<script src="js/api.js"></script>
+<!-- ✅ SHARED NAVIGATION -->
+<script src="js/navigation.js" defer></script>
+<!-- ✅ SKINPORT API -->
+<script src="js/skinport-api.js"></script>
+<!-- ✅ SKINPORT UI -->
+<script src="js/skinport-ui.js"></script>
+<!-- ✅ PROFILE PAGE SCRIPT -->
+<script src="js/profile.js" defer></script>
+
+</body>
+</html>

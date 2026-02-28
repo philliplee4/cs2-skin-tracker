@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CS2 Skin Tracker</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+
+<body>
+
+<header class="main-header">
+  <div class="logo"><img src="images/logo.png" alt="Site Logo"></div>
+
+  <nav class="navbar">
+    <a href="index.html" class="nav-link">Home</a>
+
+    <div class="nav-dropdown">
+      <a href="#" class="nav-link dropdown-trigger" data-category="pistol">Pistols</a>
+      <div class="dropdown-menu" id="dropdown-pistol"></div>
+    </div>
+
+    <div class="nav-dropdown">
+      <a href="#" class="nav-link dropdown-trigger" data-category="smg">Mid-Tier</a>
+      <div class="dropdown-menu" id="dropdown-smg"></div>
+    </div>
+
+    <div class="nav-dropdown">
+      <a href="#" class="nav-link dropdown-trigger" data-category="rifle">Rifles</a>
+      <div class="dropdown-menu" id="dropdown-rifle"></div>
+    </div>
+
+    <div class="nav-dropdown">
+      <a href="#" class="nav-link dropdown-trigger" data-category="knife">Knives</a>
+      <div class="dropdown-menu" id="dropdown-knife"></div>
+    </div>
+
+    <div class="nav-dropdown">
+      <a href="#" class="nav-link dropdown-trigger" data-category="gloves">Gloves</a>
+      <div class="dropdown-menu" id="dropdown-gloves"></div>
+    </div>
+
+    <input type="text" placeholder="Search items" id="searchBar" />
+    <a href="#" class="nav-link">How it works</a>
+
+  </nav>
+
+  <!-- PROFILE PAGE BUTTON -->
+  <div class="avatar">
+    <a href="profile.html">
+      <img src="images/avatar.png" alt="User avatar" id="avatarBtn" />
+    </a>
+  </div>
+</header>
+
+<main>
+  <section class="hero">
+    <h1>Browse and Discover CS2 Items to track!</h1>
+  </section>
+
+  <section class="content">
+
+    <div class="grid" id="itemsGrid">
+
+
+    </div>
+  </section>
+</main>
+
+<footer>
+  <p>© 2025 CS2 Item Tracker | All rights reserved</p>
+</footer>
+
+<!-- ✅ SHARED API MODULE -->
+<script src="js/api.js"></script>
+<!-- ✅ SHARED NAVIGATION -->
+<script src="js/navigation.js" defer></script>
+<!-- ✅ HOME PAGE SCRIPT -->
+<script src="js/home.js" defer></script>
+
+</body>
+</html>
