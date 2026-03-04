@@ -84,21 +84,22 @@
     <h1 id="authTitle">Login</h1>
     <div class="auth-error" id="authError"></div>
 
-    <form class="auth-form" id="authForm">
+    <!-- NO <form> tag — just a div to avoid form submit behavior -->
+    <div class="auth-form" id="authForm">
       <div class="form-group" id="emailGroup" style="display:none;">
         <label for="email">Email</label>
         <input type="email" id="email" placeholder="Enter your email">
       </div>
       <div class="form-group">
         <label for="username">Username</label>
-        <input type="text" id="username" placeholder="Enter your username" required>
+        <input type="text" id="username" placeholder="Enter your username">
       </div>
       <div class="form-group">
         <label for="password">Password</label>
-        <input type="password" id="password" placeholder="Enter your password" required>
+        <input type="password" id="password" placeholder="Enter your password">
       </div>
-      <button type="submit" class="auth-btn" id="authBtn">Login</button>
-    </form>
+      <button type="button" class="auth-btn" id="authBtn">Login</button>
+    </div>
 
     <p class="auth-switch" id="authSwitch">
       Don't have an account? <a href="#" id="toggleAuth">Sign up</a>
@@ -109,47 +110,62 @@
     const API_URL = 'http://localhost:3001/api';
     let isLogin = true;
 
-    const form = document.getElementById('authForm');
     const title = document.getElementById('authTitle');
     const btn = document.getElementById('authBtn');
-    const toggle = document.getElementById('toggleAuth');
     const switchText = document.getElementById('authSwitch');
     const emailGroup = document.getElementById('emailGroup');
     const errorDiv = document.getElementById('authError');
 
-    toggle.addEventListener('click', (e) => {
-      e.preventDefault();
-      isLogin = !isLogin;
+    // Toggle between Login and Sign Up
+    document.addEventListener('click', (e) => {
+      if (e.target.id === 'toggleAuth') {
+        e.preventDefault();
+        isLogin = !isLogin;
 
-      if (isLogin) {
-        title.textContent = 'Login';
-        btn.textContent = 'Login';
-        switchText.innerHTML = 'Don\'t have an account? <a href="#" id="toggleAuth">Sign up</a>';
-        emailGroup.style.display = 'none';
-      } else {
-        title.textContent = 'Sign Up';
-        btn.textContent = 'Create Account';
-        switchText.innerHTML = 'Already have an account? <a href="#" id="toggleAuth">Login</a>';
-        emailGroup.style.display = 'block';
+        if (isLogin) {
+          title.textContent = 'Login';
+          btn.textContent = 'Login';
+          switchText.innerHTML = 'Don\'t have an account? <a href="#" id="toggleAuth">Sign up</a>';
+          emailGroup.style.display = 'none';
+        } else {
+          title.textContent = 'Sign Up';
+          btn.textContent = 'Create Account';
+          switchText.innerHTML = 'Already have an account? <a href="#" id="toggleAuth">Login</a>';
+          emailGroup.style.display = 'block';
+        }
+
+        errorDiv.style.display = 'none';
       }
-
-      // Re-attach toggle listener
-      document.getElementById('toggleAuth').addEventListener('click', arguments.callee.bind(null, e));
-      errorDiv.style.display = 'none';
     });
 
-    form.addEventListener('submit', async (e) => {
-      e.preventDefault();
+    // Allow Enter key to trigger login
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        btn.click();
+      }
+    });
+
+    // Single login/register handler
+    btn.addEventListener('click', async () => {
+      console.log('Button clicked');
       errorDiv.style.display = 'none';
 
       const username = document.getElementById('username').value.trim();
       const password = document.getElementById('password').value;
       const email = document.getElementById('email').value.trim();
 
-      try {
-        const endpoint = isLogin ? '/login' : '/register';
-        const body = isLogin ? { username, password } : { username, email, password };
+      if (!username || !password) {
+        errorDiv.textContent = 'Please enter username and password';
+        errorDiv.style.display = 'block';
+        return;
+      }
 
+      const endpoint = isLogin ? '/login' : '/register';
+      const body = isLogin ? { username, password } : { username, email, password };
+
+      console.log('Sending request to:', API_URL + endpoint);
+
+      try {
         const res = await fetch(API_URL + endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -157,17 +173,20 @@
           body: JSON.stringify(body)
         });
 
+        console.log('Response status:', res.status);
         const data = await res.json();
+        console.log('Response data:', data);
 
         if (!res.ok) {
-          errorDiv.textContent = data.error;
+          errorDiv.textContent = data.error || 'Something went wrong';
           errorDiv.style.display = 'block';
           return;
         }
 
-        // Success - redirect to profile
+        console.log('Success! Redirecting to profile...');
         window.location.href = 'profile.html';
       } catch (err) {
+        console.error('Fetch error:', err);
         errorDiv.textContent = 'Connection failed. Is the server running?';
         errorDiv.style.display = 'block';
       }
@@ -175,11 +194,16 @@
 
     // Check if already logged in
     fetch(API_URL + '/me', { credentials: 'include' })
-      .then(res => res.json())
+      .then(res => {
+        if (res.ok) return res.json();
+        throw new Error('Not logged in');
+      })
       .then(data => {
         if (data.user) window.location.href = 'profile.html';
       })
-      .catch(() => {});
+      .catch(() => {
+        // Not logged in, stay on login page — this is normal
+      });
   </script>
 </body>
 </html>

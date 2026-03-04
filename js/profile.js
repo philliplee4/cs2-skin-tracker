@@ -10,18 +10,45 @@ let editingItemId = null;
 // Load and Display Tracked Items
 // ============================================
 
-function loadTrackedItems() {
-  // Get items from localStorage
-  trackedItems = JSON.parse(localStorage.getItem('trackedItems') || '[]');
+async function loadTrackedItems() {
+  try {
+    const data = await apiRequest('/tracked');
 
-  // Add default status if not present
-  trackedItems = trackedItems.map(item => ({
-    ...item,
-    status: item.status || 'tracking'
-  }));
+    // Map database columns to the format the frontend expects
+    trackedItems = data.map(item => ({
+      id: item.id,
+      skinId: item.skin_id,
+      weaponName: item.weapon_name,
+      skinName: item.skin_name,
+      image: item.image_url,
+      rarity: item.rarity,
+      category: item.category,
+      minPrice: item.min_price ? parseFloat(item.min_price) : null,
+      maxPrice: item.max_price ? parseFloat(item.max_price) : null,
+      wearType: item.wear_type,
+      presetWear: item.preset_wear,
+      minFloat: item.min_float ? parseFloat(item.min_float) : null,
+      maxFloat: item.max_float ? parseFloat(item.max_float) : null,
+      stattrak: item.stattrak,
+      patternNumber: item.pattern_number,
+      notes: item.notes,
+      status: item.status,
+      dateAdded: item.created_at
+    }));
 
-  updateStats();
-  renderTrackedItems();
+    updateStats();
+    renderTrackedItems();
+  } catch (error) {
+    console.error('Error loading tracked items:', error);
+    // Fallback to localStorage
+    trackedItems = JSON.parse(localStorage.getItem('trackedItems') || '[]');
+    trackedItems = trackedItems.map(item => ({
+      ...item,
+      status: item.status || 'tracking'
+    }));
+    updateStats();
+    renderTrackedItems();
+  }
 }
 
 function updateStats() {
@@ -306,40 +333,38 @@ function setupEditModalListeners() {
   });
 }
 
-function handleEditSubmit(e) {
+async function handleEditSubmit(e) {
   e.preventDefault();
 
   if (!editingItemId) return;
 
   const formData = new FormData(e.target);
-  const itemIndex = trackedItems.findIndex(item => item.skinId === editingItemId);
+  const item = trackedItems.find(i => i.skinId === editingItemId);
+  if (!item) return;
 
-  if (itemIndex === -1) return;
+  try {
+    await apiRequest(`/tracked/${item.id}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        min_price: formData.get('minPrice') ? parseFloat(formData.get('minPrice')) : null,
+        max_price: formData.get('maxPrice') ? parseFloat(formData.get('maxPrice')) : null,
+        wear_type: formData.get('wearType'),
+        preset_wear: formData.get('presetWear'),
+        min_float: formData.get('minFloat') ? parseFloat(formData.get('minFloat')) : null,
+        max_float: formData.get('maxFloat') ? parseFloat(formData.get('maxFloat')) : null,
+        stattrak: formData.get('stattrak'),
+        pattern_number: formData.get('patternNumber'),
+        notes: formData.get('notes'),
+        status: formData.get('status')
+      })
+    });
 
-  // Update item
-  trackedItems[itemIndex] = {
-    ...trackedItems[itemIndex],
-    status: formData.get('status'),
-    minPrice: formData.get('minPrice') ? parseFloat(formData.get('minPrice')) : null,
-    maxPrice: formData.get('maxPrice') ? parseFloat(formData.get('maxPrice')) : null,
-    wearType: formData.get('wearType'),
-    presetWear: formData.get('presetWear'),
-    minFloat: formData.get('minFloat') ? parseFloat(formData.get('minFloat')) : null,
-    maxFloat: formData.get('maxFloat') ? parseFloat(formData.get('maxFloat')) : null,
-    stattrak: formData.get('stattrak'),
-    patternNumber: formData.get('patternNumber'),
-    notes: formData.get('notes')
-  };
-
-  // Save to localStorage
-  localStorage.setItem('trackedItems', JSON.stringify(trackedItems));
-
-  // Show success toast
-  showToast('Item updated successfully!');
-
-  // Close modal and refresh
-  closeEditModal();
-  loadTrackedItems();
+    showToast('Item updated successfully!');
+    closeEditModal();
+    await loadTrackedItems();
+  } catch (error) {
+    console.error('Error updating item:', error);
+  }
 }
 
 // ============================================
@@ -357,24 +382,36 @@ function confirmDelete(itemId) {
   }
 }
 
-function cancelItem(itemId) {
-  const itemIndex = trackedItems.findIndex(item => item.skinId === itemId);
-  if (itemIndex === -1) return;
+async function cancelItem(itemId) {
+  try {
+    // Find the database ID (not skin_id)
+    const item = trackedItems.find(i => i.skinId === itemId);
+    if (!item) return;
 
-  trackedItems[itemIndex].status = 'cancelled';
-  localStorage.setItem('trackedItems', JSON.stringify(trackedItems));
+    await apiRequest(`/tracked/${item.id}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'cancelled' })
+    });
 
-  showToast('Tracking cancelled');
-  updateStats();
-  renderTrackedItems();
+    showToast('Tracking cancelled');
+    await loadTrackedItems();
+  } catch (error) {
+    console.error('Error cancelling item:', error);
+  }
 }
 
-function deleteItem(itemId) {
-  trackedItems = trackedItems.filter(item => item.skinId !== itemId);
-  localStorage.setItem('trackedItems', JSON.stringify(trackedItems));
+async function deleteItem(itemId) {
+  try {
+    const item = trackedItems.find(i => i.skinId === itemId);
+    if (!item) return;
 
-  showToast('Item removed from tracking list');
-  loadTrackedItems();
+    await apiRequest(`/tracked/${item.id}`, { method: 'DELETE' });
+
+    showToast('Item removed from tracking list');
+    await loadTrackedItems();
+  } catch (error) {
+    console.error('Error deleting item:', error);
+  }
 }
 
 // ============================================
@@ -425,18 +462,21 @@ async function loadSkinportMatches() {
 
   // Auto-update status based on matches
   if (matchResults) {
-    let updated = false;
     for (const item of trackedItems) {
       if (item.status === 'tracking' && matchResults[item.skinId] && matchResults[item.skinId].length > 0) {
-        item.status = 'found';
-        updated = true;
+        try {
+          await apiRequest(`/tracked/${item.id}/status`, {
+            method: 'PATCH',
+            body: JSON.stringify({ status: 'found' })
+          });
+          item.status = 'found';
+        } catch (err) {
+          console.error('Error updating status:', err);
+        }
       }
     }
-    if (updated) {
-      localStorage.setItem('trackedItems', JSON.stringify(trackedItems));
-      updateStats();
-      renderTrackedItems();
-    }
+    updateStats();
+    renderTrackedItems();
   }
 }
 
@@ -519,15 +559,14 @@ function setupRefreshButton() {
 // Initialize
 // ============================================
 
-document.addEventListener('DOMContentLoaded', () => {
-  loadTrackedItems();
+document.addEventListener('DOMContentLoaded', async () => {
+  const user = await checkAuth();
+  if (!user) return;
+
+  await loadTrackedItems();
   setupFilters();
   setupEditModalListeners();
   setupRefreshButton();
-
-  // Load Skinport matches
-  loadSkinportMatches();
-
-  // Auto-refresh every 5 minutes
+  await loadSkinportMatches();
   startAutoRefresh(loadSkinportMatches, 5);
 });

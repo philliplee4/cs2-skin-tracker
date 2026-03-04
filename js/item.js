@@ -317,14 +317,13 @@ function setupModalEventListeners() {
   }
 }
 
-function handleTrackingSubmit(e) {
+async function handleTrackingSubmit(e) {
   e.preventDefault();
 
   if (!currentSkin) return;
 
   const formData = new FormData(e.target);
 
-  // Build tracking object
   const trackingData = {
     id: currentSkin.id,
     skinId: currentSkin.id,
@@ -334,52 +333,57 @@ function handleTrackingSubmit(e) {
     rarity: currentSkin.rarity?.name,
     category: currentSkin.category?.name,
     dateAdded: new Date().toISOString(),
-
-    // Price range
     minPrice: formData.get('minPrice') ? parseFloat(formData.get('minPrice')) : null,
     maxPrice: formData.get('maxPrice') ? parseFloat(formData.get('maxPrice')) : null,
-
-    // Wear condition
     wearType: formData.get('wearType'),
     presetWear: formData.get('presetWear'),
     minFloat: formData.get('minFloat') ? parseFloat(formData.get('minFloat')) : null,
     maxFloat: formData.get('maxFloat') ? parseFloat(formData.get('maxFloat')) : null,
-
-    // StatTrak
     stattrak: formData.get('stattrak'),
-
-    // Pattern & Notes
     patternNumber: formData.get('patternNumber'),
     notes: formData.get('notes')
   };
 
-  // Save to localStorage
-  saveTrackedItem(trackingData);
-
-  // Show success message
+  await saveTrackedItem(trackingData);
   showSuccessToast();
-
-  // Close modal
   closeTrackingModal();
 }
 
-function saveTrackedItem(trackingData) {
-  // Get existing tracked items
-  let trackedItems = JSON.parse(localStorage.getItem('trackedItems') || '[]');
-
-  // Check if item is already tracked
-  const existingIndex = trackedItems.findIndex(item => item.skinId === trackingData.skinId);
-
-  if (existingIndex !== -1) {
-    // Update existing item
-    trackedItems[existingIndex] = trackingData;
-  } else {
-    // Add new item
-    trackedItems.push(trackingData);
+async function saveTrackedItem(trackingData) {
+  try {
+    // Save to API
+    await apiRequest('/tracked', {
+      method: 'POST',
+      body: JSON.stringify({
+        skin_id: trackingData.skinId,
+        weapon_name: trackingData.weaponName,
+        skin_name: trackingData.skinName,
+        image_url: trackingData.image,
+        rarity: trackingData.rarity,
+        category: trackingData.category,
+        min_price: trackingData.minPrice,
+        max_price: trackingData.maxPrice,
+        wear_type: trackingData.wearType,
+        preset_wear: trackingData.presetWear,
+        min_float: trackingData.minFloat,
+        max_float: trackingData.maxFloat,
+        stattrak: trackingData.stattrak,
+        pattern_number: trackingData.patternNumber,
+        notes: trackingData.notes
+      })
+    });
+  } catch (error) {
+    console.error('Error saving tracked item:', error);
+    // Fallback to localStorage if not logged in
+    let trackedItems = JSON.parse(localStorage.getItem('trackedItems') || '[]');
+    const existingIndex = trackedItems.findIndex(item => item.skinId === trackingData.skinId);
+    if (existingIndex !== -1) {
+      trackedItems[existingIndex] = trackingData;
+    } else {
+      trackedItems.push(trackingData);
+    }
+    localStorage.setItem('trackedItems', JSON.stringify(trackedItems));
   }
-
-  // Save back to localStorage
-  localStorage.setItem('trackedItems', JSON.stringify(trackedItems));
 }
 
 function showSuccessToast() {
