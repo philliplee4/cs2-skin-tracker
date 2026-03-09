@@ -341,6 +341,7 @@ async function handleTrackingSubmit(e) {
     maxFloat: formData.get('maxFloat') ? parseFloat(formData.get('maxFloat')) : null,
     stattrak: formData.get('stattrak'),
     patternNumber: formData.get('patternNumber'),
+    finishCatalog: formData.get('finishCatalog') || formData.get('finishCatalogCustom') || null,
     notes: formData.get('notes')
   };
 
@@ -369,6 +370,7 @@ async function saveTrackedItem(trackingData) {
         max_float: trackingData.maxFloat,
         stattrak: trackingData.stattrak,
         pattern_number: trackingData.patternNumber,
+        finish_catalog: trackingData.finishCatalog,
         notes: trackingData.notes
       })
     });

@@ -213,6 +213,35 @@
             <p class="form-hint">Leave empty for any pattern</p>
           </div>
 
+          <!-- Finish Catalog -->
+          <div class="form-section">
+            <h4>Finish Catalog (Optional)</h4>
+            <select id="finishCatalog" name="finishCatalog" class="full-width">
+              <option value="">Any Finish</option>
+              <optgroup label="Doppler Phases">
+                <option value="418">Phase 1 (418)</option>
+                <option value="419">Phase 2 (419)</option>
+                <option value="420">Phase 3 (420)</option>
+                <option value="421">Phase 4 (421)</option>
+              </optgroup>
+              <optgroup label="Doppler Rare">
+                <option value="415">Ruby (415)</option>
+                <option value="416">Sapphire (416)</option>
+                <option value="417">Black Pearl (417)</option>
+                <option value="568">Emerald (568)</option>
+              </optgroup>
+              <optgroup label="Gamma Doppler">
+                <option value="569">Gamma Phase 1 (569)</option>
+                <option value="570">Gamma Phase 2 (570)</option>
+                <option value="571">Gamma Phase 3 (571)</option>
+                <option value="572">Gamma Phase 4 (572)</option>
+                <option value="573">Gamma Emerald (573)</option>
+              </optgroup>
+            </select>
+            <p class="form-hint">Select a specific finish or enter a custom number below</p>
+            <input type="number" id="finishCatalogCustom" name="finishCatalogCustom" placeholder="Or enter custom finish catalog number" class="full-width" style="margin-top: 8px;">
+          </div>
+
           <!-- Notes -->
           <div class="form-section">
             <h4>Notes (Optional)</h4>

@@ -31,6 +31,7 @@ async function loadTrackedItems() {
       maxFloat: item.max_float ? parseFloat(item.max_float) : null,
       stattrak: item.stattrak,
       patternNumber: item.pattern_number,
+      finishCatalog: item.finish_catalog,
       notes: item.notes,
       status: item.status,
       dateAdded: item.created_at
@@ -40,12 +41,7 @@ async function loadTrackedItems() {
     renderTrackedItems();
   } catch (error) {
     console.error('Error loading tracked items:', error);
-    // Fallback to localStorage
-    trackedItems = JSON.parse(localStorage.getItem('trackedItems') || '[]');
-    trackedItems = trackedItems.map(item => ({
-      ...item,
-      status: item.status || 'tracking'
-    }));
+    trackedItems = [];
     updateStats();
     renderTrackedItems();
   }
@@ -67,13 +63,11 @@ function renderTrackedItems() {
   const container = document.getElementById('trackedItemsContainer');
   const emptyState = document.getElementById('emptyState');
 
-  // Filter items based on current filter
   let filteredItems = trackedItems;
   if (currentFilter !== 'all') {
     filteredItems = trackedItems.filter(item => item.status === currentFilter);
   }
 
-  // Show empty state if no items
   if (filteredItems.length === 0) {
     container.innerHTML = '';
     emptyState.classList.remove('hidden');
@@ -81,14 +75,8 @@ function renderTrackedItems() {
   }
 
   emptyState.classList.add('hidden');
-
-  // Sort by date (newest first)
   filteredItems.sort((a, b) => new Date(b.dateAdded) - new Date(a.dateAdded));
-
-  // Render items
   container.innerHTML = filteredItems.map(item => createTrackedItemCard(item)).join('');
-
-  // Add event listeners
   setupCardEventListeners();
 }
 
@@ -100,7 +88,6 @@ function createTrackedItemCard(item) {
     'cancelled': '🔴 Cancelled'
   }[item.status] || '🟡 Tracking';
 
-  // Format tracking details
   const priceRange = getPriceRangeText(item);
   const wearCondition = getWearConditionText(item);
   const stattrakText = getStattrakText(item);
@@ -143,6 +130,13 @@ function createTrackedItemCard(item) {
             <div class="info-item">
               <span class="info-label">Pattern</span>
               <span class="info-value">#${item.patternNumber}</span>
+            </div>
+          ` : ''}
+
+          ${item.finishCatalog ? `
+            <div class="info-item">
+              <span class="info-label">Finish</span>
+              <span class="info-value">${getFinishName(item.finishCatalog)}</span>
             </div>
           ` : ''}
         </div>
@@ -197,18 +191,26 @@ function getWearConditionText(item) {
 function getStattrakText(item) {
   if (item.stattrak === 'required') return 'Required';
   if (item.stattrak === 'none') return 'No ST';
-  return null; // Don't show if "any"
+  return null;
+}
+
+const FINISH_NAMES = {
+  418: 'Phase 1', 419: 'Phase 2', 420: 'Phase 3', 421: 'Phase 4',
+  415: 'Ruby', 416: 'Sapphire', 417: 'Black Pearl', 568: 'Emerald',
+  569: 'Gamma P1', 570: 'Gamma P2', 571: 'Gamma P3', 572: 'Gamma P4', 573: 'Gamma Emerald'
+};
+
+function getFinishName(finishCatalog) {
+  if (!finishCatalog) return null;
+  return FINISH_NAMES[finishCatalog] || `#${finishCatalog}`;
 }
 
 function setupCardEventListeners() {
-  // Card click to view item details
   document.querySelectorAll('.tracked-item-card').forEach(card => {
     card.addEventListener('click', (e) => {
-      // Ignore if clicking on buttons
       if (e.target.closest('.btn-edit') || e.target.closest('.btn-delete')) {
         return;
       }
-
       const itemId = card.dataset.itemId;
       window.location.href = `item.html?id=${itemId}`;
     });
@@ -222,11 +224,8 @@ function setupCardEventListeners() {
 function setupFilters() {
   document.querySelectorAll('.filter-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      // Update active state
       document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
-
-      // Update filter and re-render
       currentFilter = btn.dataset.filter;
       renderTrackedItems();
     });
@@ -243,22 +242,18 @@ function openEditModal(itemId) {
 
   editingItemId = itemId;
 
-  // Populate modal
   document.getElementById('editModalImage').src = item.image;
   document.getElementById('editModalWeapon').textContent = item.weaponName;
   document.getElementById('editModalSkin').textContent = item.skinName;
   document.getElementById('editItemId').value = itemId;
 
-  // Set form values
   document.querySelector(`input[name="status"][value="${item.status || 'tracking'}"]`).checked = true;
   document.getElementById('editMinPrice').value = item.minPrice || '';
   document.getElementById('editMaxPrice').value = item.maxPrice || '';
 
-  // Wear type
   const wearType = item.wearType || 'any';
   document.querySelector(`#editForm input[name="wearType"][value="${wearType}"]`).checked = true;
 
-  // Show/hide conditional sections
   const presetSection = document.getElementById('editPresetWearSection');
   const customSection = document.getElementById('editCustomWearSection');
   presetSection.classList.add('hidden');
@@ -273,15 +268,30 @@ function openEditModal(itemId) {
     document.getElementById('editMaxFloat').value = item.maxFloat || '';
   }
 
-  // StatTrak
   const stattrak = item.stattrak || 'any';
   document.querySelector(`#editForm input[name="stattrak"][value="${stattrak}"]`).checked = true;
 
-  // Pattern and notes
   document.getElementById('editPatternNumber').value = item.patternNumber || '';
   document.getElementById('editNotes').value = item.notes || '';
 
-  // Show modal
+  // Finish catalog
+  const finishSelect = document.getElementById('editFinishCatalog');
+  const finishCustom = document.getElementById('editFinishCatalogCustom');
+  if (finishSelect && item.finishCatalog) {
+    // Check if it's a known finish in the dropdown
+    const option = finishSelect.querySelector(`option[value="${item.finishCatalog}"]`);
+    if (option) {
+      finishSelect.value = item.finishCatalog;
+      if (finishCustom) finishCustom.value = '';
+    } else {
+      finishSelect.value = '';
+      if (finishCustom) finishCustom.value = item.finishCatalog;
+    }
+  } else {
+    if (finishSelect) finishSelect.value = '';
+    if (finishCustom) finishCustom.value = '';
+  }
+
   document.getElementById('editModal').classList.remove('hidden');
   document.body.style.overflow = 'hidden';
 }
@@ -300,12 +310,10 @@ function setupEditModalListeners() {
   if (closeBtn) closeBtn.addEventListener('click', closeEditModal);
   if (cancelBtn) cancelBtn.addEventListener('click', closeEditModal);
 
-  // Wear type changes
   document.querySelectorAll('#editForm input[name="wearType"]').forEach(radio => {
     radio.addEventListener('change', (e) => {
       const presetSection = document.getElementById('editPresetWearSection');
       const customSection = document.getElementById('editCustomWearSection');
-
       presetSection.classList.add('hidden');
       customSection.classList.add('hidden');
 
@@ -317,12 +325,10 @@ function setupEditModalListeners() {
     });
   });
 
-  // Form submission
   if (form) {
     form.addEventListener('submit', handleEditSubmit);
   }
 
-  // ESC key
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       const modal = document.getElementById('editModal');
@@ -354,6 +360,7 @@ async function handleEditSubmit(e) {
         max_float: formData.get('maxFloat') ? parseFloat(formData.get('maxFloat')) : null,
         stattrak: formData.get('stattrak'),
         pattern_number: formData.get('patternNumber'),
+        finish_catalog: formData.get('finishCatalog') || formData.get('finishCatalogCustom') || null,
         notes: formData.get('notes'),
         status: formData.get('status')
       })
@@ -384,7 +391,6 @@ function confirmDelete(itemId) {
 
 async function cancelItem(itemId) {
   try {
-    // Find the database ID (not skin_id)
     const item = trackedItems.find(i => i.skinId === itemId);
     if (!item) return;
 
@@ -432,38 +438,117 @@ function showToast(message) {
 }
 
 // ============================================
-// Skinport Integration
+// Skinport Matches (Server-Side Websocket)
 // ============================================
 
 async function loadSkinportMatches() {
   const container = document.getElementById('skinportMatchesContainer');
-
   if (!container) return;
 
   const trackingItems = trackedItems.filter(item => item.status === 'tracking' || item.status === 'found');
 
   if (trackingItems.length === 0) {
     container.innerHTML = `
-      <div class="listings-empty">
-        <p>Start tracking items to see matches from Skinport!</p>
+      <div class="matches-empty">
+        <p>Start tracking items to see live matches from Skinport!</p>
       </div>
     `;
     return;
   }
 
   container.innerHTML = `
-    <div class="listings-empty">
-      <p>Searching Skinport for matches...</p>
-    </div>
+    <div class="matches-loading">Loading matches...</div>
   `;
 
-  // Display matches and get results
-  const matchResults = await getAndDisplayMatches(trackingItems, container);
+  try {
+    // Fetch matches from server (found via websocket)
+    const matches = await apiRequest('/matches');
 
-  // Auto-update status based on matches
-  if (matchResults) {
+    // Also fetch websocket status
+    let status = { connected: false };
+    try {
+      const statusRes = await fetch(API_URL + '/skinport/status');
+      status = await statusRes.json();
+    } catch (e) { /* ignore */ }
+
+    if (matches.length === 0) {
+      container.innerHTML = `
+        <div class="matches-empty">
+          <div class="ws-status ${status.connected ? 'ws-connected' : 'ws-disconnected'}">
+            ${status.connected ? '🟢 Live Feed Connected' : '🔴 Live Feed Disconnected'}
+            ${status.lastEvent ? ` — Last event: ${new Date(status.lastEvent).toLocaleTimeString()}` : ''}
+          </div>
+          <h3>No Matches Found Yet</h3>
+          <p>The server is listening to Skinport's live feed. Matches will appear here automatically when items matching your criteria are listed.</p>
+        </div>
+      `;
+      return;
+    }
+
+    // Group matches by tracked item
+    const grouped = {};
+    for (const match of matches) {
+      const key = match.tracked_item_id;
+      if (!grouped[key]) grouped[key] = [];
+      grouped[key].push(match);
+    }
+
+    container.innerHTML = '';
+
+    // Status indicator
+    const statusDiv = document.createElement('div');
+    statusDiv.className = `ws-status ${status.connected ? 'ws-connected' : 'ws-disconnected'}`;
+    statusDiv.innerHTML = `
+      ${status.connected ? '🟢 Live Feed Connected' : '🔴 Live Feed Disconnected'}
+      ${status.totalProcessed ? ` — ${status.totalProcessed} events processed` : ''}
+    `;
+    container.appendChild(statusDiv);
+
+    // Render each group
+    for (const [trackedId, itemMatches] of Object.entries(grouped)) {
+      const trackedItem = trackedItems.find(i => i.id === parseInt(trackedId));
+      if (!trackedItem) continue;
+
+      const section = document.createElement('div');
+      section.className = 'match-section';
+
+      const sectionHeader = document.createElement('div');
+      sectionHeader.className = 'match-section-header';
+      sectionHeader.innerHTML = `
+        <img src="${trackedItem.image}" alt="${trackedItem.skinName}" class="match-item-image">
+        <div class="match-item-info">
+          <h3>${trackedItem.weaponName} | ${trackedItem.skinName}</h3>
+          <p>${itemMatches.length} match${itemMatches.length === 1 ? '' : 'es'} found</p>
+        </div>
+      `;
+      section.appendChild(sectionHeader);
+
+      const grid = document.createElement('div');
+      grid.className = 'listings-grid compact';
+
+      // Sort by price (cheapest first)
+      itemMatches.sort((a, b) => (a.sale_price || 0) - (b.sale_price || 0));
+
+      itemMatches.slice(0, 10).forEach(match => {
+        const card = createMatchCard(match);
+        grid.appendChild(card);
+      });
+
+      section.appendChild(grid);
+
+      if (itemMatches.length > 10) {
+        const moreText = document.createElement('p');
+        moreText.className = 'more-matches-text';
+        moreText.textContent = `+ ${itemMatches.length - 10} more matches`;
+        section.appendChild(moreText);
+      }
+
+      container.appendChild(section);
+    }
+
+    // Auto-update status for items with matches
     for (const item of trackedItems) {
-      if (item.status === 'tracking' && matchResults[item.skinId] && matchResults[item.skinId].length > 0) {
+      if (item.status === 'tracking' && grouped[item.id] && grouped[item.id].length > 0) {
         try {
           await apiRequest(`/tracked/${item.id}/status`, {
             method: 'PATCH',
@@ -477,61 +562,74 @@ async function loadSkinportMatches() {
     }
     updateStats();
     renderTrackedItems();
+
+  } catch (error) {
+    console.error('Error loading matches:', error);
+    container.innerHTML = `
+      <div class="matches-error">
+        <h3>Error Loading Matches</h3>
+        <p>Failed to load matches from server. Make sure the server is running.</p>
+      </div>
+    `;
   }
 }
 
-function showSkinportSettingsModal() {
-  // Create modal
-  const modal = document.createElement('div');
-  modal.id = 'skinportSettingsModal';
-  modal.className = 'modal';
-  modal.innerHTML = `
-    <div class="modal-overlay"></div>
-    <div class="modal-content">
-      <div class="modal-header">
-        <h2>Skinport API Settings</h2>
-        <button class="modal-close" id="closeSkinportSettings">&times;</button>
+/**
+ * Create a card for a single match from the websocket feed
+ */
+function createMatchCard(match) {
+  const card = document.createElement('div');
+  card.className = 'skinport-listing-card';
+
+  const price = match.sale_price ? parseFloat(match.sale_price) : 0;
+  const suggestedPrice = match.suggested_price ? parseFloat(match.suggested_price) : 0;
+  const discount = suggestedPrice > 0 ? Math.round(((suggestedPrice - price) / suggestedPrice) * 100) : 0;
+  const hasDiscount = discount > 0;
+
+  const wearFloat = match.wear_float ? parseFloat(match.wear_float).toFixed(4) : null;
+  const foundTime = match.found_at ? new Date(match.found_at).toLocaleTimeString() : '';
+
+  card.innerHTML = `
+    <div class="listing-header">
+      <h4 class="listing-name">${match.market_hash_name || 'Unknown Item'}</h4>
+      ${hasDiscount ? `<span class="discount-badge">-${discount}%</span>` : ''}
+    </div>
+
+    <div class="listing-info">
+      ${match.exterior ? `<span class="wear-badge">${match.exterior}</span>` : ''}
+      ${match.phase ? `<span class="phase-badge">${match.phase}</span>` : ''}
+      ${wearFloat ? `<span class="float-badge">Float: ${wearFloat}</span>` : ''}
+      ${match.pattern ? `<span class="pattern-badge">Pattern: ${match.pattern}</span>` : ''}
+      ${match.stattrak ? `<span class="stattrak-badge">StatTrak™</span>` : ''}
+    </div>
+
+    <div class="listing-price">
+      <div class="current-price">
+        <span class="price-label">Price:</span>
+        <span class="price-value">$${price.toFixed(2)}</span>
       </div>
-      <div class="modal-body" id="skinportSettingsBody">
-        <!-- Settings form will be inserted here -->
-      </div>
+      ${suggestedPrice && suggestedPrice !== price ? `
+        <div class="suggested-price">
+          <span class="price-label">Suggested:</span>
+          <span class="price-value strikethrough">$${suggestedPrice.toFixed(2)}</span>
+        </div>
+      ` : ''}
+    </div>
+
+    <div class="listing-meta">
+      <span class="found-time">Found: ${foundTime}</span>
+    </div>
+
+    <div class="listing-actions">
+      ${match.skinport_url ? `
+        <a href="${match.skinport_url}" target="_blank" rel="noopener noreferrer" class="btn-view-skinport">
+          View on Skinport
+        </a>
+      ` : ''}
     </div>
   `;
 
-  document.body.appendChild(modal);
-
-  // Insert settings form
-  const settingsBody = document.getElementById('skinportSettingsBody');
-  const settingsForm = createSkinportSettingsForm();
-  settingsBody.appendChild(settingsForm);
-
-  // Setup listeners
-  setupSkinportSettingsListeners();
-
-  // Show modal
-  modal.classList.remove('hidden');
-  document.body.style.overflow = 'hidden';
-
-  // Close button
-  const closeBtn = document.getElementById('closeSkinportSettings');
-  if (closeBtn) {
-    closeBtn.addEventListener('click', () => {
-      modal.remove();
-      document.body.style.overflow = '';
-      // Reload matches after settings change
-      loadSkinportMatches();
-    });
-  }
-
-  // Close on overlay click
-  const overlay = modal.querySelector('.modal-overlay');
-  if (overlay) {
-    overlay.addEventListener('click', () => {
-      modal.remove();
-      document.body.style.overflow = '';
-      loadSkinportMatches();
-    });
-  }
+  return card;
 }
 
 function setupRefreshButton() {
@@ -539,19 +637,42 @@ function setupRefreshButton() {
   if (refreshBtn) {
     refreshBtn.addEventListener('click', async () => {
       refreshBtn.disabled = true;
-      refreshBtn.textContent = 'Refreshing...';
+      refreshBtn.textContent = 'Scanning...';
 
-      // Clear cache to force fresh data
-      itemsCache = null;
-      itemsCacheTimestamp = null;
+      // Trigger server-side scan of existing Skinport listings
+      try {
+        const scanResult = await apiRequest('/matches/scan', { method: 'POST' });
+        console.log('Scan result:', scanResult);
+      } catch (err) {
+        console.error('Scan error:', err);
+      }
 
+      // Then reload matches
       await loadSkinportMatches();
 
       refreshBtn.disabled = false;
       refreshBtn.textContent = 'Refresh';
 
-      showToast('Skinport data refreshed!');
+      showToast('Skinport scan complete!');
     });
+  }
+}
+
+// ============================================
+// Auto-refresh matches every 30 seconds
+// ============================================
+
+let matchRefreshInterval = null;
+
+function startMatchRefresh() {
+  if (matchRefreshInterval) clearInterval(matchRefreshInterval);
+  matchRefreshInterval = setInterval(loadSkinportMatches, 30000); // 30 seconds
+}
+
+function stopMatchRefresh() {
+  if (matchRefreshInterval) {
+    clearInterval(matchRefreshInterval);
+    matchRefreshInterval = null;
   }
 }
 
@@ -568,5 +689,5 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupEditModalListeners();
   setupRefreshButton();
   await loadSkinportMatches();
-  startAutoRefresh(loadSkinportMatches, 5);
+  startMatchRefresh();
 });
