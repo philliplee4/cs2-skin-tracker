@@ -340,14 +340,13 @@ async function handleTrackingSubmit(e) {
     minFloat: formData.get('minFloat') ? parseFloat(formData.get('minFloat')) : null,
     maxFloat: formData.get('maxFloat') ? parseFloat(formData.get('maxFloat')) : null,
     stattrak: formData.get('stattrak'),
+    souvenir: formData.get('souvenir'),
     patternNumber: formData.get('patternNumber'),
     finishCatalog: formData.get('finishCatalog') || formData.get('finishCatalogCustom') || null,
     notes: formData.get('notes')
   };
 
   await saveTrackedItem(trackingData);
-  showSuccessToast();
-  closeTrackingModal();
 }
 
 async function saveTrackedItem(trackingData) {
@@ -369,27 +368,31 @@ async function saveTrackedItem(trackingData) {
         min_float: trackingData.minFloat,
         max_float: trackingData.maxFloat,
         stattrak: trackingData.stattrak,
+        souvenir: trackingData.souvenir,
         pattern_number: trackingData.patternNumber,
         finish_catalog: trackingData.finishCatalog,
         notes: trackingData.notes
       })
     });
+
+    showSuccessToast();
+    closeTrackingModal();
   } catch (error) {
     console.error('Error saving tracked item:', error);
-    // Fallback to localStorage if not logged in
-    let trackedItems = JSON.parse(localStorage.getItem('trackedItems') || '[]');
-    const existingIndex = trackedItems.findIndex(item => item.skinId === trackingData.skinId);
-    if (existingIndex !== -1) {
-      trackedItems[existingIndex] = trackingData;
+
+    // Show appropriate error message
+    if (error.message.includes('already tracking')) {
+      showErrorToast('You are already tracking this item with the same criteria');
+    } else if (error.message.includes('Not logged in')) {
+      showErrorToast('Please log in to track items');
+      setTimeout(() => { window.location.href = 'login.html'; }, 2000);
     } else {
-      trackedItems.push(trackingData);
+      showErrorToast('Failed to save tracked item. Please try again.');
     }
-    localStorage.setItem('trackedItems', JSON.stringify(trackedItems));
   }
 }
 
 function showSuccessToast() {
-  // Create toast notification
   const toast = document.createElement('div');
   toast.className = 'toast-notification';
   toast.innerHTML = `
@@ -398,11 +401,25 @@ function showSuccessToast() {
 
   document.body.appendChild(toast);
 
-  // Remove after 3 seconds
   setTimeout(() => {
     toast.classList.add('toast-fade-out');
     setTimeout(() => toast.remove(), 300);
   }, 3000);
+}
+
+function showErrorToast(message) {
+  const toast = document.createElement('div');
+  toast.className = 'toast-notification toast-error';
+  toast.innerHTML = `
+    <span>✗ ${message}</span>
+  `;
+
+  document.body.appendChild(toast);
+
+  setTimeout(() => {
+    toast.classList.add('toast-fade-out');
+    setTimeout(() => toast.remove(), 300);
+  }, 4000);
 }
 
 // ============================================

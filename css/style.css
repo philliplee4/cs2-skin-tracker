@@ -1184,6 +1184,23 @@ footer {
   margin-top: 8px;
 }
 
+.btn-logout {
+  padding: 8px 20px;
+  background: rgba(255, 77, 77, 0.15);
+  border: 1px solid rgba(255, 77, 77, 0.3);
+  color: #ff6b6b;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+}
+.btn-logout:hover {
+  background: rgba(255, 77, 77, 0.3);
+}
+
+.toast-error {
+  background: rgba(255, 77, 77, 0.9) !important;
+}
+
 /* Mobile responsiveness */
 @media (max-width: 768px) {
   .profile-stats {

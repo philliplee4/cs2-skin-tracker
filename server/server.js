@@ -159,7 +159,7 @@ app.post('/api/tracked', requireAuth, async (req, res) => {
   const {
     skin_id, weapon_name, skin_name, image_url, rarity, category,
     min_price, max_price, wear_type, preset_wear, min_float, max_float,
-    stattrak, pattern_number, finish_catalog, notes
+    stattrak, souvenir, pattern_number, finish_catalog, notes
   } = req.body;
 
   if (!skin_id || !weapon_name || !skin_name) {
@@ -167,17 +167,38 @@ app.post('/api/tracked', requireAuth, async (req, res) => {
   }
 
   try {
+    // Check for duplicate — same skin with same key criteria
+    const duplicate = await pool.query(
+      `SELECT id FROM tracked_items 
+       WHERE user_id = $1 AND skin_id = $2 
+         AND min_price IS NOT DISTINCT FROM $3
+         AND max_price IS NOT DISTINCT FROM $4
+         AND wear_type IS NOT DISTINCT FROM $5
+         AND preset_wear IS NOT DISTINCT FROM $6
+         AND stattrak IS NOT DISTINCT FROM $7
+         AND finish_catalog IS NOT DISTINCT FROM $8
+         AND souvenir IS NOT DISTINCT FROM $9
+         AND status != 'cancelled'`,
+      [req.session.userId, skin_id, min_price || null, max_price || null,
+       wear_type || 'any', preset_wear || null, stattrak || 'any', finish_catalog || null,
+       souvenir || 'any']
+    );
+
+    if (duplicate.rows.length > 0) {
+      return res.status(409).json({ error: 'You are already tracking this item with the same criteria' });
+    }
+
     const result = await pool.query(
       `INSERT INTO tracked_items 
         (user_id, skin_id, weapon_name, skin_name, image_url, rarity, category,
          min_price, max_price, wear_type, preset_wear, min_float, max_float,
-         stattrak, pattern_number, finish_catalog, notes)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+         stattrak, souvenir, pattern_number, finish_catalog, notes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
        RETURNING *`,
       [req.session.userId, skin_id, weapon_name, skin_name, image_url, rarity, category,
        min_price || null, max_price || null, wear_type || 'any', preset_wear || null,
-       min_float || null, max_float || null, stattrak || 'any', pattern_number || null,
-       finish_catalog || null, notes || null]
+       min_float || null, max_float || null, stattrak || 'any', souvenir || 'any',
+       pattern_number || null, finish_catalog || null, notes || null]
     );
     res.status(201).json(result.rows[0]);
 
@@ -196,7 +217,7 @@ app.put('/api/tracked/:id', requireAuth, async (req, res) => {
   const { id } = req.params;
   const {
     min_price, max_price, wear_type, preset_wear, min_float, max_float,
-    stattrak, pattern_number, finish_catalog, notes, status
+    stattrak, souvenir, pattern_number, finish_catalog, notes, status
   } = req.body;
 
   try {
@@ -213,12 +234,13 @@ app.put('/api/tracked/:id', requireAuth, async (req, res) => {
       `UPDATE tracked_items SET
         min_price = $1, max_price = $2, wear_type = $3, preset_wear = $4,
         min_float = $5, max_float = $6, stattrak = $7, pattern_number = $8,
-        notes = $9, status = $10, finish_catalog = $11, updated_at = NOW()
-       WHERE id = $12 AND user_id = $13
+        notes = $9, status = $10, finish_catalog = $11, souvenir = $12, updated_at = NOW()
+       WHERE id = $13 AND user_id = $14
        RETURNING *`,
       [min_price || null, max_price || null, wear_type || 'any', preset_wear || null,
        min_float || null, max_float || null, stattrak || 'any', pattern_number || null,
-       notes || null, status || 'tracking', finish_catalog || null, id, req.session.userId]
+       notes || null, status || 'tracking', finish_catalog || null, souvenir || 'any',
+       id, req.session.userId]
     );
     res.json(result.rows[0]);
   } catch (error) {
@@ -453,11 +475,42 @@ function doesRESTItemMatch(item, tracked) {
     return false;
   }
 
+  // Check Souvenir
+  if (tracked.souvenir === 'required' && !itemName.includes('souvenir')) {
+    return false;
+  }
+  if (tracked.souvenir === 'none' && itemName.includes('souvenir')) {
+    return false;
+  }
+
   // Check wear condition by name (REST API doesn't have float values)
   if (tracked.wear_type === 'preset' && tracked.preset_wear) {
     const wearRange = WEAR_RANGES[tracked.preset_wear];
     if (wearRange) {
       if (!itemName.includes(wearRange.name.toLowerCase())) {
+        return false;
+      }
+    }
+  }
+
+  // Custom float range — determine which wear tiers overlap and filter by name
+  if (tracked.wear_type === 'custom' && (tracked.min_float !== null || tracked.max_float !== null)) {
+    const minF = tracked.min_float ? parseFloat(tracked.min_float) : 0;
+    const maxF = tracked.max_float ? parseFloat(tracked.max_float) : 1;
+
+    // Find which wear tiers overlap with the custom range
+    const matchingWears = [];
+    for (const [key, range] of Object.entries(WEAR_RANGES)) {
+      // Check if ranges overlap: custom [minF, maxF] overlaps with tier [range.min, range.max]
+      if (minF < range.max && maxF > range.min) {
+        matchingWears.push(range.name.toLowerCase());
+      }
+    }
+
+    // If we found matching tiers, check if item name contains any of them
+    if (matchingWears.length > 0) {
+      const itemMatchesAnyWear = matchingWears.some(wear => itemName.includes(wear));
+      if (!itemMatchesAnyWear) {
         return false;
       }
     }
@@ -680,6 +733,228 @@ app.post('/api/matches/scan', requireAuth, async (req, res) => {
 });
 
 // ============================================
+// Notification Settings Routes
+// ============================================
+
+// Get notification settings for current user
+app.get('/api/notifications', requireAuth, async (req, res) => {
+  try {
+    const result = await pool.query(
+      'SELECT * FROM notification_settings WHERE user_id = $1',
+      [req.session.userId]
+    );
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching notification settings:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Add or update a notification method
+app.post('/api/notifications', requireAuth, async (req, res) => {
+  const { method, value, enabled } = req.body;
+
+  if (!method || !value) {
+    return res.status(400).json({ error: 'Method and value are required' });
+  }
+
+  if (!['discord', 'email', 'phone'].includes(method)) {
+    return res.status(400).json({ error: 'Invalid notification method' });
+  }
+
+  try {
+    // Upsert — update if method exists, insert if not
+    const result = await pool.query(
+      `INSERT INTO notification_settings (user_id, method, value, enabled)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (user_id, method) DO UPDATE SET
+         value = $3, enabled = $4, updated_at = NOW()
+       RETURNING *`,
+      [req.session.userId, method, value, enabled !== false]
+    );
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error saving notification setting:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Delete a notification method
+app.delete('/api/notifications/:method', requireAuth, async (req, res) => {
+  try {
+    const result = await pool.query(
+      'DELETE FROM notification_settings WHERE user_id = $1 AND method = $2 RETURNING *',
+      [req.session.userId, req.params.method]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Notification method not found' });
+    }
+
+    res.json({ message: 'Notification method removed' });
+  } catch (error) {
+    console.error('Error deleting notification setting:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Test a notification method
+app.post('/api/notifications/test', requireAuth, async (req, res) => {
+  const { method } = req.body;
+
+  try {
+    const setting = await pool.query(
+      'SELECT * FROM notification_settings WHERE user_id = $1 AND method = $2',
+      [req.session.userId, method]
+    );
+
+    if (setting.rows.length === 0) {
+      return res.status(404).json({ error: 'Notification method not configured' });
+    }
+
+    const config = setting.rows[0];
+
+    if (method === 'discord') {
+      await sendDiscordNotification(config.value, {
+        title: '🔔 Test Notification',
+        description: 'Your Discord notifications are working! You\'ll receive alerts here when tracked items are found on Skinport.',
+        color: 0x4ecdc4,
+        fields: [
+          { name: 'Status', value: '✅ Connected', inline: true },
+          { name: 'User', value: req.session.username, inline: true }
+        ]
+      });
+      res.json({ message: 'Test notification sent!' });
+    } else {
+      res.status(400).json({ error: `${method} notifications not yet implemented` });
+    }
+  } catch (error) {
+    console.error('Error sending test notification:', error);
+    res.status(500).json({ error: 'Failed to send test notification. Check your webhook URL.' });
+  }
+});
+
+// ============================================
+// Discord Webhook Functions
+// ============================================
+
+/**
+ * Send a Discord webhook notification
+ */
+async function sendDiscordNotification(webhookUrl, embed) {
+  return new Promise((resolve, reject) => {
+    const payload = JSON.stringify({
+      username: 'CS2 Skin Tracker',
+      avatar_url: 'https://raw.githubusercontent.com/nickarino/cs2-tracker/main/icon.png',
+      embeds: [embed]
+    });
+
+    const url = new URL(webhookUrl);
+
+    const options = {
+      hostname: url.hostname,
+      path: url.pathname + url.search,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(payload)
+      }
+    };
+
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        if (res.statusCode === 204 || res.statusCode === 200) {
+          resolve();
+        } else {
+          reject(new Error(`Discord webhook failed: ${res.statusCode} ${data}`));
+        }
+      });
+    });
+
+    req.on('error', reject);
+    req.write(payload);
+    req.end();
+  });
+}
+
+/**
+ * Send match notifications to a user via all their enabled methods
+ */
+async function notifyUserOfMatches(userId, trackedItem, matches) {
+  try {
+    // Get user's notification settings
+    const settings = await pool.query(
+      'SELECT * FROM notification_settings WHERE user_id = $1 AND enabled = true',
+      [userId]
+    );
+
+    if (settings.rows.length === 0) return;
+
+    for (const setting of settings.rows) {
+      if (setting.method === 'discord') {
+        try {
+          await sendMatchDiscordNotification(setting.value, trackedItem, matches);
+        } catch (err) {
+          console.error(`❌ Discord notification failed for user ${userId}:`, err.message);
+        }
+      }
+      // Future: email, phone
+    }
+  } catch (error) {
+    console.error('Error sending notifications:', error);
+  }
+}
+
+/**
+ * Format and send match results to Discord
+ */
+async function sendMatchDiscordNotification(webhookUrl, trackedItem, matches) {
+  const itemName = `${trackedItem.weapon_name} | ${trackedItem.skin_name}`;
+
+  // Build fields for each match (max 25 per embed)
+  const fields = matches.slice(0, 10).map((match, i) => {
+    const price = match.salePrice ? `$${(match.salePrice / 100).toFixed(2)}` : 'N/A';
+    const wear = match.exterior || 'Unknown';
+    const float = match.wear ? match.wear.toFixed(4) : '';
+    const phase = DOPPLER_PHASES[match.finish] ? ` (${DOPPLER_PHASES[match.finish]})` : '';
+    const stattrak = match.stattrak ? ' StatTrak™' : '';
+    const url = match.url ? `https://skinport.com/item/${match.url}` : '';
+
+    return {
+      name: `${i + 1}. ${wear}${phase}${stattrak} — ${price}`,
+      value: `${float ? `Float: ${float}\n` : ''}${url ? `[View on Skinport](${url})` : ''}`,
+      inline: false
+    };
+  });
+
+  const embed = {
+    title: `🎯 Found ${matches.length} match${matches.length === 1 ? '' : 'es'} for ${itemName}`,
+    color: 0x4ecdc4, // Teal color matching your site
+    fields: fields,
+    footer: {
+      text: 'CS2 Skin Tracker — Skinport Live Feed'
+    },
+    timestamp: new Date().toISOString()
+  };
+
+  // Add price range info
+  if (trackedItem.min_price || trackedItem.max_price) {
+    const range = trackedItem.min_price && trackedItem.max_price
+      ? `$${trackedItem.min_price} - $${trackedItem.max_price}`
+      : trackedItem.min_price ? `From $${trackedItem.min_price}` : `Up to $${trackedItem.max_price}`;
+    embed.description = `Target price range: ${range}`;
+  }
+
+  if (matches.length > 10) {
+    embed.description = (embed.description || '') + `\n\n*Showing top 10 of ${matches.length} matches. Check your profile for all results.*`;
+  }
+
+  await sendDiscordNotification(webhookUrl, embed);
+}
+
+// ============================================
 // Skinport Websocket Integration
 // ============================================
 
@@ -761,6 +1036,14 @@ function doesListingMatch(sale, tracked) {
     return false;
   }
 
+  // 3b. Check Souvenir
+  if (tracked.souvenir === 'required' && !sale.souvenir) {
+    return false;
+  }
+  if (tracked.souvenir === 'none' && sale.souvenir) {
+    return false;
+  }
+
   // 4. Check wear condition
   if (tracked.wear_type === 'preset' && tracked.preset_wear) {
     const wearRange = WEAR_RANGES[tracked.preset_wear];
@@ -809,6 +1092,42 @@ function doesListingMatch(sale, tracked) {
  * Process a sale event from the Skinport websocket
  */
 async function processSaleEvent(eventType, sales) {
+  if (eventType === 'sold') {
+    // Remove sold listings from matches
+    for (const sale of sales) {
+      try {
+        const deleted = await pool.query(
+          'DELETE FROM skinport_matches WHERE sale_id = $1 RETURNING tracked_item_id',
+          [sale.saleId]
+        );
+
+        if (deleted.rows.length > 0) {
+          console.log(`🔴 SOLD: ${sale.marketHashName} ($${(sale.salePrice/100).toFixed(2)}) — removed from matches`);
+
+          // Check if tracked item has any remaining matches
+          for (const row of deleted.rows) {
+            const remaining = await pool.query(
+              'SELECT COUNT(*) FROM skinport_matches WHERE tracked_item_id = $1',
+              [row.tracked_item_id]
+            );
+
+            if (parseInt(remaining.rows[0].count) === 0) {
+              // No more matches — set status back to tracking
+              await pool.query(
+                "UPDATE tracked_items SET status = 'tracking', updated_at = NOW() WHERE id = $1 AND status = 'found'",
+                [row.tracked_item_id]
+              );
+              console.log(`   ↩ Tracked item ${row.tracked_item_id} set back to TRACKING (no matches left)`);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Error processing sold event:', err.message);
+      }
+    }
+    return;
+  }
+
   // Only process new listings
   if (eventType !== 'listed') return;
 
@@ -820,6 +1139,10 @@ async function processSaleEvent(eventType, sales) {
     const allTracked = trackedResult.rows;
 
     if (allTracked.length === 0) return;
+
+    // Track matches per user per tracked item for batched notifications
+    // Key: `${user_id}_${tracked_item_id}`, Value: { tracked, matches: [sale, ...] }
+    const matchBatches = {};
 
     for (const sale of sales) {
       for (const tracked of allTracked) {
@@ -840,7 +1163,7 @@ async function processSaleEvent(eventType, sales) {
                 tracked.id,
                 sale.saleId,
                 sale.marketHashName,
-                sale.salePrice / 100, // Convert cents to dollars
+                sale.salePrice / 100,
                 sale.suggestedPrice ? sale.suggestedPrice / 100 : null,
                 sale.wear,
                 sale.exterior,
@@ -854,8 +1177,15 @@ async function processSaleEvent(eventType, sales) {
             );
 
             console.log(`✅ MATCH: ${sale.marketHashName} ($${(sale.salePrice/100).toFixed(2)}) → tracked by user ${tracked.user_id}`);
+
+            // Batch for notification
+            const batchKey = `${tracked.user_id}_${tracked.id}`;
+            if (!matchBatches[batchKey]) {
+              matchBatches[batchKey] = { tracked, matches: [] };
+            }
+            matchBatches[batchKey].matches.push(sale);
+
           } catch (dbErr) {
-            // Ignore duplicate key errors, log others
             if (dbErr.code !== '23505') {
               console.error('Error saving match:', dbErr.message);
             }
@@ -863,6 +1193,14 @@ async function processSaleEvent(eventType, sales) {
         }
       }
     }
+
+    // Send batched notifications
+    for (const batch of Object.values(matchBatches)) {
+      notifyUserOfMatches(batch.tracked.user_id, batch.tracked, batch.matches).catch(err => {
+        console.error('Notification error:', err.message);
+      });
+    }
+
   } catch (error) {
     console.error('Error processing sale event:', error);
   }

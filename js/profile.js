@@ -30,6 +30,7 @@ async function loadTrackedItems() {
       minFloat: item.min_float ? parseFloat(item.min_float) : null,
       maxFloat: item.max_float ? parseFloat(item.max_float) : null,
       stattrak: item.stattrak,
+      souvenir: item.souvenir,
       patternNumber: item.pattern_number,
       finishCatalog: item.finish_catalog,
       notes: item.notes,
@@ -91,6 +92,7 @@ function createTrackedItemCard(item) {
   const priceRange = getPriceRangeText(item);
   const wearCondition = getWearConditionText(item);
   const stattrakText = getStattrakText(item);
+  const souvenirText = getSouvenirText(item);
   const dateAdded = new Date(item.dateAdded).toLocaleDateString();
 
   return `
@@ -123,6 +125,13 @@ function createTrackedItemCard(item) {
             <div class="info-item">
               <span class="info-label">StatTrak</span>
               <span class="info-value">${stattrakText}</span>
+            </div>
+          ` : ''}
+
+          ${souvenirText ? `
+            <div class="info-item">
+              <span class="info-label">Souvenir</span>
+              <span class="info-value">${souvenirText}</span>
             </div>
           ` : ''}
 
@@ -191,6 +200,12 @@ function getWearConditionText(item) {
 function getStattrakText(item) {
   if (item.stattrak === 'required') return 'Required';
   if (item.stattrak === 'none') return 'No ST';
+  return null;
+}
+
+function getSouvenirText(item) {
+  if (item.souvenir === 'required') return 'Required';
+  if (item.souvenir === 'none') return 'No Souvenir';
   return null;
 }
 
@@ -270,6 +285,10 @@ function openEditModal(itemId) {
 
   const stattrak = item.stattrak || 'any';
   document.querySelector(`#editForm input[name="stattrak"][value="${stattrak}"]`).checked = true;
+
+  const souvenir = item.souvenir || 'any';
+  const souvenirRadio = document.querySelector(`#editForm input[name="souvenir"][value="${souvenir}"]`);
+  if (souvenirRadio) souvenirRadio.checked = true;
 
   document.getElementById('editPatternNumber').value = item.patternNumber || '';
   document.getElementById('editNotes').value = item.notes || '';
@@ -359,6 +378,7 @@ async function handleEditSubmit(e) {
         min_float: formData.get('minFloat') ? parseFloat(formData.get('minFloat')) : null,
         max_float: formData.get('maxFloat') ? parseFloat(formData.get('maxFloat')) : null,
         stattrak: formData.get('stattrak'),
+        souvenir: formData.get('souvenir'),
         pattern_number: formData.get('patternNumber'),
         finish_catalog: formData.get('finishCatalog') || formData.get('finishCatalogCustom') || null,
         notes: formData.get('notes'),
@@ -639,7 +659,14 @@ function setupRefreshButton() {
       refreshBtn.disabled = true;
       refreshBtn.textContent = 'Scanning...';
 
-      // Trigger server-side scan of existing Skinport listings
+      // Clear old matches first
+      try {
+        await apiRequest('/matches/clear', { method: 'DELETE' });
+      } catch (err) {
+        console.error('Clear error:', err);
+      }
+
+      // Trigger fresh server-side scan of existing Skinport listings
       try {
         const scanResult = await apiRequest('/matches/scan', { method: 'POST' });
         console.log('Scan result:', scanResult);
@@ -677,6 +704,132 @@ function stopMatchRefresh() {
 }
 
 // ============================================
+// Notification Settings
+// ============================================
+
+async function loadNotificationSettings() {
+  try {
+    const settings = await apiRequest('/notifications');
+
+    for (const setting of settings) {
+      if (setting.method === 'discord') {
+        const input = document.getElementById('discordWebhookUrl');
+        const status = document.getElementById('discordStatus');
+        const removeBtn = document.getElementById('removeDiscord');
+
+        if (input) input.value = setting.value;
+        if (status) {
+          status.textContent = setting.enabled ? 'Active' : 'Disabled';
+          status.className = `method-status ${setting.enabled ? 'status-active' : 'status-disabled'}`;
+        }
+        if (removeBtn) removeBtn.style.display = 'inline-block';
+      }
+    }
+  } catch (error) {
+    console.error('Error loading notification settings:', error);
+  }
+}
+
+function setupNotificationListeners() {
+  // Save Discord webhook
+  const saveDiscordBtn = document.getElementById('saveDiscord');
+  if (saveDiscordBtn) {
+    saveDiscordBtn.addEventListener('click', async () => {
+      const url = document.getElementById('discordWebhookUrl').value.trim();
+
+      if (!url) {
+        showToast('Please enter a webhook URL');
+        return;
+      }
+
+      if (!url.startsWith('https://discord.com/api/webhooks/')) {
+        showToast('Invalid Discord webhook URL');
+        return;
+      }
+
+      try {
+        saveDiscordBtn.disabled = true;
+        saveDiscordBtn.textContent = 'Saving...';
+
+        await apiRequest('/notifications', {
+          method: 'POST',
+          body: JSON.stringify({
+            method: 'discord',
+            value: url,
+            enabled: true
+          })
+        });
+
+        const status = document.getElementById('discordStatus');
+        if (status) {
+          status.textContent = 'Active';
+          status.className = 'method-status status-active';
+        }
+
+        const removeBtn = document.getElementById('removeDiscord');
+        if (removeBtn) removeBtn.style.display = 'inline-block';
+
+        showToast('Discord webhook saved!');
+      } catch (error) {
+        console.error('Error saving Discord webhook:', error);
+        showToast('Failed to save webhook');
+      } finally {
+        saveDiscordBtn.disabled = false;
+        saveDiscordBtn.textContent = 'Save';
+      }
+    });
+  }
+
+  // Test Discord webhook
+  const testDiscordBtn = document.getElementById('testDiscord');
+  if (testDiscordBtn) {
+    testDiscordBtn.addEventListener('click', async () => {
+      try {
+        testDiscordBtn.disabled = true;
+        testDiscordBtn.textContent = 'Sending...';
+
+        await apiRequest('/notifications/test', {
+          method: 'POST',
+          body: JSON.stringify({ method: 'discord' })
+        });
+
+        showToast('Test notification sent! Check your Discord.');
+      } catch (error) {
+        console.error('Error testing Discord webhook:', error);
+        showToast('Failed to send test. Is the webhook URL saved?');
+      } finally {
+        testDiscordBtn.disabled = false;
+        testDiscordBtn.textContent = 'Test';
+      }
+    });
+  }
+
+  // Remove Discord webhook
+  const removeDiscordBtn = document.getElementById('removeDiscord');
+  if (removeDiscordBtn) {
+    removeDiscordBtn.addEventListener('click', async () => {
+      if (!confirm('Remove Discord notifications?')) return;
+
+      try {
+        await apiRequest('/notifications/discord', { method: 'DELETE' });
+
+        document.getElementById('discordWebhookUrl').value = '';
+        const status = document.getElementById('discordStatus');
+        if (status) {
+          status.textContent = 'Not configured';
+          status.className = 'method-status';
+        }
+        removeDiscordBtn.style.display = 'none';
+
+        showToast('Discord webhook removed');
+      } catch (error) {
+        console.error('Error removing Discord webhook:', error);
+      }
+    });
+  }
+}
+
+// ============================================
 // Initialize
 // ============================================
 
@@ -684,10 +837,29 @@ document.addEventListener('DOMContentLoaded', async () => {
   const user = await checkAuth();
   if (!user) return;
 
+  // Display username
+  const usernameEl = document.getElementById('profileUsername');
+  if (usernameEl && user.username) {
+    usernameEl.textContent = user.username;
+  }
+
+  // Logout button
+  const logoutBtn = document.getElementById('logoutBtn');
+  if (logoutBtn) {
+    logoutBtn.addEventListener('click', async () => {
+      try {
+        await fetch(API_URL + '/logout', { method: 'POST', credentials: 'include' });
+      } catch (e) { /* ignore */ }
+      window.location.href = 'login.html';
+    });
+  }
+
   await loadTrackedItems();
   setupFilters();
   setupEditModalListeners();
   setupRefreshButton();
+  await loadNotificationSettings();
+  setupNotificationListeners();
   await loadSkinportMatches();
   startMatchRefresh();
 });

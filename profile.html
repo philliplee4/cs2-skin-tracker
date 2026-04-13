@@ -58,11 +58,14 @@
       <div class="profile-info">
         <img src="images/avatar.png" alt="Profile Avatar" class="profile-avatar-large">
         <div>
-          <h1>My Profile</h1>
+          <h1 id="profileUsername">My Profile</h1>
           <p class="profile-subtitle">Manage your tracked CS2 items</p>
         </div>
       </div>
-      <div class="profile-stats">
+      <button class="btn-logout" id="logoutBtn">Logout</button>
+    </div>
+
+    <div class="profile-stats">
         <div class="stat-card">
           <span class="stat-number" id="totalTracked">0</span>
           <span class="stat-label">Tracked Items</span>
@@ -84,6 +87,52 @@
   </section>
 
   <section class="profile-content">
+    <!-- Notification Settings Section -->
+    <div class="notification-section">
+      <div class="section-header">
+        <h2>Notification Settings</h2>
+      </div>
+      <div class="notification-settings">
+        <!-- Discord -->
+        <div class="notification-method">
+          <div class="method-header">
+            <span class="method-icon">💬</span>
+            <h3>Discord Webhook</h3>
+            <span class="method-status" id="discordStatus">Not configured</span>
+          </div>
+          <div class="method-body">
+            <p class="method-description">Get notified in your Discord server when matches are found. <a href="https://support.discord.com/hc/en-us/articles/228383668-Intro-to-Webhooks" target="_blank">How to create a webhook</a></p>
+            <div class="method-form">
+              <input type="url" id="discordWebhookUrl" placeholder="https://discord.com/api/webhooks/..." class="full-width">
+              <div class="method-actions">
+                <button class="btn-primary" id="saveDiscord">Save</button>
+                <button class="btn-secondary" id="testDiscord">Test</button>
+                <button class="btn-delete" id="removeDiscord" style="display:none;">Remove</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Email (future) -->
+        <div class="notification-method disabled">
+          <div class="method-header">
+            <span class="method-icon">📧</span>
+            <h3>Email</h3>
+            <span class="method-status">Coming soon</span>
+          </div>
+        </div>
+
+        <!-- Phone (future) -->
+        <div class="notification-method disabled">
+          <div class="method-header">
+            <span class="method-icon">📱</span>
+            <h3>Text Message</h3>
+            <span class="method-status">Coming soon</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Skinport Matches Section -->
     <div class="skinport-section">
       <div class="section-header">
@@ -236,6 +285,25 @@
             <label class="radio-option">
               <input type="radio" name="stattrak" value="none">
               <span>No StatTrak</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Souvenir -->
+        <div class="form-section" id="editSouvenirSection">
+          <h4>Souvenir</h4>
+          <div class="radio-group">
+            <label class="radio-option">
+              <input type="radio" name="souvenir" value="any" checked>
+              <span>Any (With or Without)</span>
+            </label>
+            <label class="radio-option">
+              <input type="radio" name="souvenir" value="required">
+              <span>Souvenir Only</span>
+            </label>
+            <label class="radio-option">
+              <input type="radio" name="souvenir" value="none">
+              <span>No Souvenir</span>
             </label>
           </div>
         </div>
