@@ -458,7 +458,8 @@ async function loadMarketPrices(skin) {
 }
 
 /**
- * Fetch Skinport price history and render the Chart.js graph.
+ * Fetch price history and render the Chart.js graph.
+ * Uses Skinport history; falls back to Steam spot price if unavailable.
  */
 async function loadPriceHistory(skin) {
   const weaponName = skin.weapon?.name;
@@ -469,6 +470,13 @@ async function loadPriceHistory(skin) {
   try {
     const params = new URLSearchParams({ weapon: weaponName, skin: skinName });
     const data   = await apiRequest(`/price-history?${params}`);
+
+    if (data.rateLimited) {
+      const overlay = document.getElementById('mpChartLoading');
+      if (overlay) overlay.innerHTML = '<span class="mp-chart-loading-text">Price history temporarily unavailable — try again in a moment</span>';
+      return;
+    }
+
     renderPriceChart(data.history);
   } catch (err) {
     console.warn('Price history fetch failed:', err.message);
@@ -478,8 +486,9 @@ async function loadPriceHistory(skin) {
 }
 
 /**
- * Draw the Skinport price history chart using Chart.js.
- * @param {Object|null} history  - { wear, points: [{label, min, median, volume}] }
+ * Draw the price history chart using Chart.js.
+ * Supports Skinport multi-point history and Steam single-point fallback.
+ * @param {Object|null} history  - { wear, source?, points: [{label, min, median, volume}] }
  */
 function renderPriceChart(history) {
   const canvas    = document.getElementById('priceHistoryChart');
@@ -489,7 +498,7 @@ function renderPriceChart(history) {
 
   if (!canvas) return;
 
-  if (!history || !Array.isArray(history.points) || history.points.every(p => p.median == null && p.min == null)) {
+  if (!history || !Array.isArray(history.points) || history.points.length === 0) {
     if (overlay) overlay.innerHTML = '<span class="mp-chart-loading-text">No price history available</span>';
     return;
   }
@@ -503,8 +512,11 @@ function renderPriceChart(history) {
     wearBadge.style.display = 'inline-block';
   }
 
-  // Subtitle hint
-  if (subtitle) subtitle.textContent = 'Skinport price history · all listings · Skinport data';
+  // Subtitle — note if this is a Steam fallback
+  const isSteamFallback = history.source === 'steam';
+  if (subtitle) subtitle.textContent = isSteamFallback
+    ? 'Steam current price · Skinport history unavailable'
+    : 'Skinport price history · all listings · Skinport data';
 
   const labels     = history.points.map(p => p.label);
   const medianData = history.points.map(p => p.median);
