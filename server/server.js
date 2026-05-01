@@ -3,6 +3,8 @@ const express = require('express');
 const session = require('express-session');
 const cors = require('cors');
 const bcrypt = require('bcrypt');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const https = require('https');
 const zlib = require('zlib');
 const pool = require('./db');
@@ -11,6 +13,13 @@ const app = express();
 const PORT = 3001;
 
 // Middleware
+app.use(helmet({
+  // We're running an API that's called from a separate frontend on :5500,
+  // so the default strict CSP/CORP headers would break things.
+  // Keep the rest (hsts, xss, noSniff, frameguard, etc.)
+  crossOriginResourcePolicy: false,
+  contentSecurityPolicy: false
+}));
 app.use(express.json());
 app.use(cors({
   origin: ['http://localhost:5500', 'http://127.0.0.1:5500'],
@@ -28,6 +37,38 @@ app.use(session({
 }));
 
 // ============================================
+// Rate Limiters
+// ============================================
+
+// Login / register: protect against brute-force and spam signup.
+// Counts FAILED attempts more strictly — 10 total per 15 min per IP.
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many attempts. Try again in 15 minutes.' }
+});
+
+// Manual scan is expensive (hits Skinport + DB hard). Cap it.
+const scanLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 3,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Scanning too frequently. Wait a moment and try again.' }
+});
+
+// Generic API limiter for anything that hits the DB.
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false
+});
+app.use('/api/', apiLimiter);
+
+// ============================================
 // Auth Middleware
 // ============================================
 
@@ -43,7 +84,7 @@ function requireAuth(req, res, next) {
 // ============================================
 
 // Register
-app.post('/api/register', async (req, res) => {
+app.post('/api/register', authLimiter, async (req, res) => {
   const { username, email, password } = req.body;
 
   if (!username || !email || !password) {
@@ -84,7 +125,7 @@ app.post('/api/register', async (req, res) => {
 });
 
 // Login
-app.post('/api/login', async (req, res) => {
+app.post('/api/login', authLimiter, async (req, res) => {
   const { username, password } = req.body;
 
   if (!username || !password) {
@@ -169,8 +210,8 @@ app.post('/api/tracked', requireAuth, async (req, res) => {
   try {
     // Check for duplicate — same skin with same key criteria
     const duplicate = await pool.query(
-      `SELECT id FROM tracked_items 
-       WHERE user_id = $1 AND skin_id = $2 
+      `SELECT id FROM tracked_items
+       WHERE user_id = $1 AND skin_id = $2
          AND min_price IS NOT DISTINCT FROM $3
          AND max_price IS NOT DISTINCT FROM $4
          AND wear_type IS NOT DISTINCT FROM $5
@@ -189,7 +230,7 @@ app.post('/api/tracked', requireAuth, async (req, res) => {
     }
 
     const result = await pool.query(
-      `INSERT INTO tracked_items 
+      `INSERT INTO tracked_items
         (user_id, skin_id, weapon_name, skin_name, image_url, rarity, category,
          min_price, max_price, wear_type, preset_wear, min_float, max_float,
          stattrak, souvenir, pattern_number, finish_catalog, notes)
@@ -386,59 +427,101 @@ app.get('/api/skinport/status', (req, res) => {
 // Cache for REST API data
 let skinportItemsCache = null;
 let skinportCacheTime = null;
+let skinportErrorTime = null; // tracks last rate-limit / bad-response time for backoff
 const SKINPORT_CACHE_DURATION = 10 * 60 * 1000; // 10 minutes
+const SKINPORT_BACKOFF_DURATION = 2 * 60 * 1000; // 2 minutes
 
 /**
- * Fetch all items from Skinport REST API (with caching)
+ * Fetch all items from Skinport REST API (with caching and error backoff).
+ * Uses https.request so we can attach a browser-like User-Agent — without it
+ * Skinport aggressively rate-limits or ignores server-side requests.
  */
 function fetchSkinportItemsREST() {
   return new Promise((resolve, reject) => {
     const now = Date.now();
 
-    // Return cache if fresh
+    // Return cache if still fresh
     if (skinportItemsCache && skinportCacheTime && (now - skinportCacheTime < SKINPORT_CACHE_DURATION)) {
       return resolve(skinportItemsCache);
     }
 
-    const url = 'https://api.skinport.com/v1/items?app_id=730&currency=USD';
+    // Don't hammer Skinport while we're in a backoff window
+    if (skinportErrorTime && (now - skinportErrorTime < SKINPORT_BACKOFF_DURATION)) {
+      return reject(new Error('[Skinport REST] On backoff — skipping'));
+    }
 
-    https.get(url, { headers: { 'Accept-Encoding': 'br, gzip, deflate' } }, (res) => {
-      let chunks = [];
+    const options = {
+      hostname: 'api.skinport.com',
+      path: '/v1/items?app_id=730&currency=USD',
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+        'Accept-Encoding': 'br, gzip, deflate',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+      }
+    };
+
+    const req = https.request(options, (res) => {
+      if (res.statusCode === 429) {
+        skinportErrorTime = Date.now();
+        console.log('[Skinport REST] Rate limited — backing off 2 min');
+        res.resume(); // drain the socket so the connection closes cleanly
+        return reject(new Error('[Skinport REST] Rate limited (429)'));
+      }
+
+      const chunks = [];
       res.on('data', chunk => chunks.push(chunk));
       res.on('end', () => {
-        const buffer = Buffer.concat(chunks);
+        const buffer   = Buffer.concat(chunks);
         const encoding = res.headers['content-encoding'];
 
         const handleData = (data) => {
           try {
-            const items = JSON.parse(data);
-            if (Array.isArray(items)) {
-              skinportItemsCache = items;
-              skinportCacheTime = Date.now();
-              resolve(items);
-            } else {
-              reject(new Error('Skinport API returned non-array'));
+            const parsed = JSON.parse(data);
+            // Skinport returns a plain array, but guard against wrapped formats
+            let items;
+            if (Array.isArray(parsed))                       items = parsed;
+            else if (parsed && Array.isArray(parsed.data))   items = parsed.data;
+            else if (parsed && Array.isArray(parsed.items))  items = parsed.items;
+            else {
+              skinportErrorTime = Date.now();
+              console.log('[Skinport REST] Unexpected response format — backing off');
+              return reject(new Error('Skinport REST: unexpected response format'));
             }
+            skinportItemsCache = items;
+            skinportCacheTime  = Date.now();
+            skinportErrorTime  = null;
+            console.log(`[Skinport REST] Cached ${items.length} items`);
+            resolve(items);
           } catch (e) {
-            reject(new Error('Failed to parse Skinport response'));
+            skinportErrorTime = Date.now();
+            reject(new Error('Failed to parse Skinport REST response'));
           }
         };
 
         if (encoding === 'br') {
           zlib.brotliDecompress(buffer, (err, result) => {
-            if (err) return reject(err);
+            if (err) { skinportErrorTime = Date.now(); return reject(err); }
             handleData(result.toString());
           });
         } else if (encoding === 'gzip') {
           zlib.gunzip(buffer, (err, result) => {
-            if (err) return reject(err);
+            if (err) { skinportErrorTime = Date.now(); return reject(err); }
             handleData(result.toString());
           });
         } else {
           handleData(buffer.toString());
         }
       });
-    }).on('error', reject);
+    });
+
+    req.on('error', (err) => { skinportErrorTime = Date.now(); reject(err); });
+    req.setTimeout(15000, () => {
+      req.destroy();
+      skinportErrorTime = Date.now();
+      reject(new Error('Skinport REST request timed out'));
+    });
+    req.end();
   });
 }
 
@@ -538,7 +621,7 @@ async function checkExistingListingsForItem(trackedItem) {
 
         try {
           await pool.query(
-            `INSERT INTO skinport_matches 
+            `INSERT INTO skinport_matches
               (tracked_item_id, sale_id, market_hash_name, sale_price, suggested_price,
                wear_float, exterior, pattern, finish, stattrak, image_url, skinport_url, phase)
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
@@ -576,6 +659,11 @@ async function checkExistingListingsForItem(trackedItem) {
   } catch (error) {
     console.error('Error checking existing listings:', error.message);
   }
+
+  // Also check DMarket for this item (async, don't block)
+  checkDMarketListingsForItem(trackedItem).catch(err => {
+    console.error('DMarket check error for new item:', err.message);
+  });
 }
 
 /**
@@ -616,7 +704,7 @@ async function checkAllExistingListings() {
 
           try {
             await pool.query(
-              `INSERT INTO skinport_matches 
+              `INSERT INTO skinport_matches
                 (tracked_item_id, sale_id, market_hash_name, sale_price, suggested_price,
                  wear_float, exterior, pattern, finish, stattrak, image_url, skinport_url, phase)
                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
@@ -653,13 +741,20 @@ async function checkAllExistingListings() {
     }
 
     console.log(`🔍 Initial scan complete: ${totalMatches} total match(es) found`);
+
+    // Also scan DMarket for all tracked items (small delay first so Skinport scan finishes)
+    setTimeout(() => {
+      checkAllDMarketListings().catch(err => {
+        console.error('DMarket initial scan error:', err.message);
+      });
+    }, 5000);
   } catch (error) {
     console.error('Error during initial scan:', error.message);
   }
 }
 
 // Manual scan endpoint - trigger a full check
-app.post('/api/matches/scan', requireAuth, async (req, res) => {
+app.post('/api/matches/scan', requireAuth, scanLimiter, async (req, res) => {
   try {
     // Only scan this user's tracked items
     const trackedResult = await pool.query(
@@ -670,7 +765,7 @@ app.post('/api/matches/scan', requireAuth, async (req, res) => {
     if (trackedResult.rows.length === 0) {
       // Still clear old matches even if nothing is tracking
       await pool.query(
-        `DELETE FROM skinport_matches 
+        `DELETE FROM skinport_matches
          WHERE tracked_item_id IN (SELECT id FROM tracked_items WHERE user_id = $1)`,
         [req.session.userId]
       );
@@ -679,7 +774,7 @@ app.post('/api/matches/scan', requireAuth, async (req, res) => {
 
     // Clear ALL old matches for this user's tracked items (fresh start)
     await pool.query(
-      `DELETE FROM skinport_matches 
+      `DELETE FROM skinport_matches
        WHERE tracked_item_id IN (SELECT id FROM tracked_items WHERE user_id = $1)`,
       [req.session.userId]
     );
@@ -697,7 +792,7 @@ app.post('/api/matches/scan', requireAuth, async (req, res) => {
 
           try {
             await pool.query(
-              `INSERT INTO skinport_matches 
+              `INSERT INTO skinport_matches
                 (tracked_item_id, sale_id, market_hash_name, sale_price, suggested_price,
                  wear_float, exterior, pattern, finish, stattrak, image_url, skinport_url, phase)
                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
@@ -724,6 +819,11 @@ app.post('/api/matches/scan', requireAuth, async (req, res) => {
         }
       }
     }
+
+    // Also kick off a DMarket scan in the background (non-blocking so response returns quickly)
+    checkAllDMarketListings().catch(err => {
+      console.error('Manual DMarket scan error:', err.message);
+    });
 
     res.json({ message: `Scan complete`, matches: totalMatches });
   } catch (error) {
@@ -955,6 +1055,425 @@ async function sendMatchDiscordNotification(webhookUrl, trackedItem, matches) {
 }
 
 // ============================================
+// Multi-Market Price Comparison
+// ============================================
+
+// Per-source caches so we never hammer external APIs
+const dmarketCache = new Map(); // key: searchTitle   → { data, timestamp }
+const steamCache   = new Map(); // key: marketHashName → { data, timestamp }
+const DMARKET_CACHE_TTL = 10 * 60 * 1000;    // 10 minutes
+const STEAM_CACHE_TTL   =  6 * 60 * 60 * 1000; // 6 hours (Steam prices are slow-moving)
+
+/**
+ * Fetch the lowest listed price for a skin on DMarket.
+ * DMarket's public REST API requires no auth for read-only item listings.
+ * Prices come back in USD cents as a string inside price.USD.
+ */
+function fetchDMarketPrice(searchTitle) {
+  return new Promise((resolve) => {
+    const now    = Date.now();
+    const cached = dmarketCache.get(searchTitle);
+    if (cached && (now - cached.timestamp) < DMARKET_CACHE_TTL) {
+      return resolve(cached.data);
+    }
+
+    const encodedTitle = encodeURIComponent(searchTitle);
+    const path = `/exchange/v1/market/items?gameId=a8db&title=${encodedTitle}&currency=USD&limit=10&orderBy=price&orderDir=asc`;
+
+    const options = {
+      hostname: 'api.dmarket.com',
+      path,
+      method: 'GET',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; CS2Tracker/1.0)',
+        'Accept': 'application/json'
+      }
+    };
+
+    const req = https.request(options, (res) => {
+      let raw = '';
+      res.on('data', chunk => raw += chunk);
+      res.on('end', () => {
+        try {
+          const json = JSON.parse(raw);
+          if (json.objects && json.objects.length > 0) {
+            const prices = json.objects
+              .map(obj => obj.price && obj.price.USD ? parseInt(obj.price.USD, 10) : null)
+              .filter(p => p !== null && p > 0);
+
+            if (prices.length > 0) {
+              const result = {
+                price: Math.min(...prices) / 100,
+                count: prices.length
+              };
+              dmarketCache.set(searchTitle, { data: result, timestamp: now });
+              return resolve(result);
+            }
+          }
+          resolve(null);
+        } catch (_) {
+          resolve(null);
+        }
+      });
+    });
+
+    req.on('error', () => resolve(null));
+    req.setTimeout(6000, () => { req.destroy(); resolve(null); });
+    req.end();
+  });
+}
+
+/**
+ * Fetch the lowest and median price from Steam Community Market.
+ * Steam requires an exact market_hash_name including wear tier.
+ * We use Field-Tested as the representative condition (most commonly traded).
+ * Steam prices include their ~15% seller fee — we note this in the UI.
+ */
+function fetchSteamPrice(marketHashName) {
+  return new Promise((resolve) => {
+    const now    = Date.now();
+    const cached = steamCache.get(marketHashName);
+    if (cached && (now - cached.timestamp) < STEAM_CACHE_TTL) {
+      return resolve(cached.data);
+    }
+
+    const encodedName = encodeURIComponent(marketHashName);
+    const options = {
+      hostname: 'steamcommunity.com',
+      path: `/market/priceoverview/?appid=730&currency=1&market_hash_name=${encodedName}`,
+      method: 'GET',
+      headers: {
+        // Without a real browser UA Steam silently returns 400 or nothing
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+      }
+    };
+
+    const req = https.request(options, (res) => {
+      let raw = '';
+      res.on('data', chunk => raw += chunk);
+      res.on('end', () => {
+        try {
+          const json = JSON.parse(raw);
+          if (json.success && json.lowest_price) {
+            // "$1.23" or "1,23€" → strip everything except digits and the dot
+            const toFloat = str => parseFloat(str.replace(/[^0-9.]/g, ''));
+            const result = {
+              price:  toFloat(json.lowest_price),
+              median: json.median_price ? toFloat(json.median_price) : null,
+              volume: json.volume || null
+            };
+            steamCache.set(marketHashName, { data: result, timestamp: now });
+            return resolve(result);
+          }
+          resolve(null);
+        } catch (_) {
+          resolve(null);
+        }
+      });
+    });
+
+    req.on('error', () => resolve(null));
+    req.setTimeout(6000, () => { req.destroy(); resolve(null); });
+    req.end();
+  });
+}
+
+/**
+ * GET /api/market-prices?weapon=AK-47&skin=Redline
+ *
+ * Returns lowest prices from Skinport (cached REST data), DMarket, and Steam (FT).
+ * Each source is independent — if one fails the others still return.
+ */
+app.get('/api/market-prices', async (req, res) => {
+  const { weapon, skin } = req.query;
+  if (!weapon || !skin) {
+    return res.status(400).json({ error: 'weapon and skin query params are required' });
+  }
+
+  const searchName = `${weapon} | ${skin}`;
+  const ftHashName = `${searchName} (Field-Tested)`;
+
+  // Skinport: scan the existing in-memory REST cache (no extra network call needed)
+  let skinportResult = null;
+  try {
+    const items = await fetchSkinportItemsREST();
+    const wLower = weapon.toLowerCase();
+    const sLower = skin.toLowerCase();
+    const matches = items.filter(item => {
+      const n = (item.market_hash_name || '').toLowerCase();
+      return n.includes(wLower) && n.includes(sLower);
+    });
+    if (matches.length > 0) {
+      const prices = matches.map(m => m.min_price).filter(p => p != null && p > 0);
+      if (prices.length > 0) {
+        skinportResult = {
+          price: Math.min(...prices),
+          count: matches.length,
+          url: `https://skinport.com/market?search=${encodeURIComponent(searchName)}&sort=price&order=asc`
+        };
+      }
+    }
+  } catch (_) { /* Skinport unavailable — continue with other sources */ }
+
+  // DMarket and Steam fetched in parallel to keep response latency low
+  const [dmarketRaw, steamRaw] = await Promise.all([
+    fetchDMarketPrice(searchName).catch(() => null),
+    fetchSteamPrice(ftHashName).catch(() => null)
+  ]);
+
+  const dmarketResult = dmarketRaw ? {
+    ...dmarketRaw,
+    url: `https://dmarket.com/ingame-items/item-list/csgo-skins?userOffersSearch=${encodeURIComponent(searchName)}`
+  } : null;
+
+  const steamResult = steamRaw ? {
+    ...steamRaw,
+    condition: 'Field-Tested',
+    note: 'Incl. Steam 15% fee',
+    url: `https://steamcommunity.com/market/listings/730/${encodeURIComponent(ftHashName)}`
+  } : null;
+
+  res.json({
+    searchName,
+    fetchedAt: new Date().toISOString(),
+    skinport: skinportResult,
+    dmarket:  dmarketResult,
+    steam:    steamResult
+  });
+});
+
+// ============================================
+// Skinport Price History
+// ============================================
+
+const skinportHistoryCache = new Map();
+const SKINPORT_HISTORY_CACHE_TTL        = 30 * 60 * 1000; // 30 minutes (price history is slow-moving)
+const SKINPORT_HISTORY_BACKOFF_DURATION = 10 * 60 * 1000; // 10 minutes after a 429
+let skinportHistoryErrorTime = null; // backoff after 429 from history API
+
+// Field-Tested first — most commonly listed condition for the majority of skins.
+// Trying in popularity order lets us stop early and save API quota.
+const WEAR_SUFFIXES = [
+  '(Field-Tested)',
+  '(Minimal Wear)',
+  '(Factory New)',
+  '(Well-Worn)',
+  '(Battle-Scarred)'
+];
+
+const TIME_WINDOWS = [
+  { label: '90d', key: 'last_90_days'  },
+  { label: '30d', key: 'last_30_days'  },
+  { label: '7d',  key: 'last_7_days'   },
+  { label: '24h', key: 'last_24_hours' }
+];
+
+/**
+ * Fetch aggregated sales history from Skinport for a given weapon + skin.
+ *
+ * Fetches wear conditions one at a time (not in parallel) so we don't burst
+ * all 5 requests at once and immediately hit Skinport's rate limit.
+ * Stops as soon as a wear tier with >= 5 sales in the last 30 days is found,
+ * which is usually just the first request (Field-Tested) for popular skins.
+ */
+async function fetchSkinportSalesHistory(weaponName, skinName) {
+  const cacheKey = `${weaponName}|${skinName}`;
+  const now = Date.now();
+
+  const cached = skinportHistoryCache.get(cacheKey);
+  if (cached && (now - cached.timestamp) < SKINPORT_HISTORY_CACHE_TTL) {
+    return cached.data;
+  }
+
+  // Honour backoff if we recently got rate-limited
+  if (skinportHistoryErrorTime && (now - skinportHistoryErrorTime < SKINPORT_HISTORY_BACKOFF_DURATION)) {
+    return null;
+  }
+
+  const baseName = `${weaponName} | ${skinName}`;
+
+  const fetchWear = (suffix) => new Promise((res) => {
+    const marketHashName = `${baseName} ${suffix}`;
+    const encodedName    = encodeURIComponent(marketHashName);
+    const options = {
+      hostname: 'api.skinport.com',
+      path: `/v1/sales/history?app_id=730&currency=USD&market_hash_name=${encodedName}`,
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+        'Accept-Encoding': 'br, gzip, deflate',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+      }
+    };
+
+    const req = https.request(options, (response) => {
+      if (response.statusCode === 429) {
+        skinportHistoryErrorTime = Date.now();
+        console.log('[Skinport History] Rate limited — backing off');
+        response.resume();
+        return res({ wear: suffix, item: null });
+      }
+
+      let stream = response;
+      const enc = response.headers['content-encoding'];
+      if (enc === 'br')        stream = response.pipe(zlib.createBrotliDecompress());
+      else if (enc === 'gzip') stream = response.pipe(zlib.createGunzip());
+
+      const chunks = [];
+      stream.on('data', chunk => chunks.push(chunk));
+      stream.on('end', () => {
+        try {
+          const raw  = Buffer.concat(chunks).toString();
+          const json = JSON.parse(raw);
+          let item = null;
+          if (Array.isArray(json)) {
+            item = json.find(i => i.market_hash_name === marketHashName) ?? json[0] ?? null;
+          } else if (typeof json === 'object' && json !== null) {
+            item = json;
+          }
+          if (item && (item['last_90_days'] || item['last_30_days'] || item['last_7_days'] || item['last_24_hours'])) {
+            res({ wear: suffix, item });
+          } else {
+            res({ wear: suffix, item: null });
+          }
+        } catch (_) {
+          res({ wear: suffix, item: null });
+        }
+      });
+      stream.on('error', () => res({ wear: suffix, item: null }));
+    });
+
+    req.on('error', () => res({ wear: suffix, item: null }));
+    req.setTimeout(8000, () => { req.destroy(); res({ wear: suffix, item: null }); });
+    req.end();
+  });
+
+  // Sequential fetch — one wear condition at a time with a pause between each.
+  // This keeps us well under Skinport's rate limit even with many concurrent users.
+  const results = [];
+  for (let i = 0; i < WEAR_SUFFIXES.length; i++) {
+    // Stop immediately if a previous request triggered the backoff
+    if (skinportHistoryErrorTime && (Date.now() - skinportHistoryErrorTime < SKINPORT_HISTORY_BACKOFF_DURATION)) break;
+
+    const result = await fetchWear(WEAR_SUFFIXES[i]);
+    results.push(result);
+
+    // Early exit: this wear tier has enough 30-day volume — no need to check others
+    if (result.item) {
+      const vol30 = result.item['last_30_days']?.volume ?? 0;
+      if (vol30 >= 5) break;
+    }
+
+    // Pause before the next request
+    if (i < WEAR_SUFFIXES.length - 1) {
+      await new Promise(r => setTimeout(r, 300));
+    }
+  }
+
+  // Pick the wear tier with the highest 30d (or fallback 7d / 90d) volume
+  let best = null;
+  let bestVol = -1;
+  for (const { wear, item } of results) {
+    if (!item) continue;
+    const vol = (item['last_30_days']?.volume ?? item['last_7_days']?.volume ?? item['last_90_days']?.volume ?? 0);
+    if (vol > bestVol) { bestVol = vol; best = { wear, item }; }
+  }
+
+  // Fallback: any result that has data at all
+  if (!best) {
+    const fallback = results.find(r => r.item != null);
+    if (fallback) best = { wear: fallback.wear, item: fallback.item };
+  }
+
+  if (!best) {
+    skinportHistoryCache.set(cacheKey, { data: null, timestamp: now });
+    return null;
+  }
+
+  const { wear, item } = best;
+  const points = TIME_WINDOWS.map(({ label, key }) => ({
+    label,
+    min:    item[key]?.min    ?? null,
+    median: item[key]?.median ?? null,
+    volume: item[key]?.volume ?? 0
+  }));
+
+  const result = { wear, points };
+  skinportHistoryCache.set(cacheKey, { data: result, timestamp: now });
+  skinportHistoryErrorTime = null; // clear backoff on success
+  return result;
+}
+
+/**
+ * GET /api/price-history?weapon=AK-47&skin=Redline
+ *
+ * Returns Skinport aggregated sales history across all wear tiers.
+ * Picks the wear with highest 30d volume and returns 4 time buckets.
+ */
+app.get('/api/price-history', apiLimiter, async (req, res) => {
+  const { weapon, skin } = req.query;
+  if (!weapon || !skin) {
+    return res.status(400).json({ error: 'weapon and skin query params required' });
+  }
+  try {
+    const history = await fetchSkinportSalesHistory(weapon, skin);
+    res.json({ fetchedAt: new Date().toISOString(), history });
+  } catch (err) {
+    console.error('Price history error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch price history' });
+  }
+});
+
+/**
+ * GET /api/debug/skinport-history?name=AWP+%7C+Dragon+Lore+(Field-Tested)
+ *
+ * DEV ONLY — returns the raw Skinport /v1/sales/history response for one
+ * market_hash_name so you can see exactly what the API sends back.
+ * Remove this route before going to production.
+ */
+app.get('/api/debug/skinport-history', async (req, res) => {
+  const { name } = req.query;
+  if (!name) return res.status(400).json({ error: 'name param required' });
+
+  const encodedName = encodeURIComponent(name);
+  const options = {
+    hostname: 'api.skinport.com',
+    path: `/v1/sales/history?app_id=730&currency=USD&market_hash_name=${encodedName}`,
+    method: 'GET',
+    headers: { 'Accept': 'application/json', 'Accept-Encoding': 'br, gzip, deflate' }
+  };
+
+  const req2 = https.request(options, (response) => {
+    let stream = response;
+    const enc = response.headers['content-encoding'];
+    if (enc === 'br')        stream = response.pipe(zlib.createBrotliDecompress());
+    else if (enc === 'gzip') stream = response.pipe(zlib.createGunzip());
+
+    const chunks = [];
+    stream.on('data', c => chunks.push(c));
+    stream.on('end', () => {
+      try {
+        const raw = Buffer.concat(chunks).toString();
+        res.json({
+          status:   response.statusCode,
+          encoding: enc || 'none',
+          bodyLength: raw.length,
+          // Return first 3000 chars to avoid flooding the browser
+          preview: raw.slice(0, 3000),
+          parsed: (() => { try { return JSON.parse(raw); } catch(_) { return null; } })()
+        });
+      } catch (e) {
+        res.status(500).json({ error: e.message });
+      }
+    });
+    stream.on('error', e => res.status(500).json({ streamError: e.message }));
+  });
+  req2.on('error', e => res.status(500).json({ requestError: e.message }));
+  req2.setTimeout(10000, () => { req2.destroy(); res.status(504).json({ error: 'timeout' }); });
+  req2.end();
+});
+
+// ============================================
 // Skinport Websocket Integration
 // ============================================
 
@@ -1153,7 +1672,7 @@ async function processSaleEvent(eventType, sales) {
           // Save match to database
           try {
             await pool.query(
-              `INSERT INTO skinport_matches 
+              `INSERT INTO skinport_matches
                 (tracked_item_id, sale_id, market_hash_name, sale_price, suggested_price,
                  wear_float, exterior, pattern, finish, stattrak, image_url, skinport_url, phase)
                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
@@ -1271,6 +1790,309 @@ async function connectSkinportWebsocket() {
 }
 
 // ============================================
+// DMarket Listing Tracker
+// ============================================
+
+/**
+ * Fetch all current listings for a skin from DMarket's public REST API.
+ * Returns normalized listing objects ready for criteria matching.
+ * DMarket returns per-listing float values and pattern seeds, making it
+ * suitable for full criteria tracking (unlike Skinport REST which omits floats).
+ */
+function fetchDMarketListings(weaponName, skinName) {
+  return new Promise((resolve) => {
+    const title = `${weaponName} | ${skinName}`;
+    const encodedTitle = encodeURIComponent(title);
+    const path = `/exchange/v1/market/items?gameId=a8db&title=${encodedTitle}&currency=USD&limit=100&orderBy=price&orderDir=asc`;
+
+    const options = {
+      hostname: 'api.dmarket.com',
+      path,
+      method: 'GET',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; CS2Tracker/1.0)',
+        'Accept': 'application/json'
+      }
+    };
+
+    const req = https.request(options, (res) => {
+      let raw = '';
+      res.on('data', chunk => raw += chunk);
+      res.on('end', () => {
+        try {
+          const json = JSON.parse(raw);
+          if (!json.objects || !Array.isArray(json.objects)) return resolve([]);
+
+          const listings = json.objects.map(obj => {
+            const itemTitle = obj.title || '';
+
+            // Wear condition is in the title parenthetical: "AK-47 | Redline (Field-Tested)"
+            const wearMatch = itemTitle.match(/\(([^)]+)\)$/);
+            const exterior = wearMatch ? wearMatch[1] : null;
+
+            const price = obj.price && obj.price.USD
+              ? parseInt(obj.price.USD, 10) / 100 : null;
+            const suggestedPrice = obj.suggestPrice && obj.suggestPrice.USD
+              ? parseInt(obj.suggestPrice.USD, 10) / 100 : null;
+
+            const extra = obj.extra || {};
+
+            return {
+              objectId:       obj.objectId || null,
+              title:          itemTitle,
+              price:          price,
+              suggestedPrice: suggestedPrice,
+              floatValue:     extra.floatValue != null ? parseFloat(extra.floatValue) : null,
+              paintSeed:      extra.paintSeed != null ? parseInt(extra.paintSeed, 10) : null,
+              phase:          extra.phase || null,  // e.g. "Phase 1", "Ruby", null
+              isStatTrak:     extra.isStatTrak || false,
+              isSouvenir:     extra.isSouvenir || false,
+              exterior:       exterior,
+              image:          obj.image || null,
+              listingUrl:     obj.objectId
+                ? `https://dmarket.com/ingame-items/item-list/csgo-skins?type=item&id=${obj.objectId}`
+                : `https://dmarket.com/ingame-items/item-list/csgo-skins?userOffersSearch=${encodedTitle}`
+            };
+          }).filter(l => l.objectId && l.price != null && l.price > 0);
+
+          resolve(listings);
+        } catch (_) {
+          resolve([]);
+        }
+      });
+    });
+
+    req.on('error', () => resolve([]));
+    req.setTimeout(8000, () => { req.destroy(); resolve([]); });
+    req.end();
+  });
+}
+
+/**
+ * Check if a DMarket listing matches a tracked item's criteria.
+ * DMarket provides per-listing floats and pattern seeds (unlike Skinport REST),
+ * so we can do precise float/pattern matching here.
+ */
+function doesDMarketListingMatch(listing, tracked) {
+  // 1. Price
+  if (tracked.min_price && listing.price < parseFloat(tracked.min_price)) return false;
+  if (tracked.max_price && listing.price > parseFloat(tracked.max_price)) return false;
+
+  // 2. StatTrak
+  if (tracked.stattrak === 'required' && !listing.isStatTrak) return false;
+  if (tracked.stattrak === 'none'     &&  listing.isStatTrak) return false;
+
+  // 3. Souvenir
+  if (tracked.souvenir === 'required' && !listing.isSouvenir) return false;
+  if (tracked.souvenir === 'none'     &&  listing.isSouvenir) return false;
+
+  // 4. Wear condition
+  if (tracked.wear_type === 'preset' && tracked.preset_wear) {
+    const wearRange = WEAR_RANGES[tracked.preset_wear];
+    if (wearRange) {
+      if (listing.floatValue != null) {
+        // Precise float check
+        if (listing.floatValue < wearRange.min || listing.floatValue >= wearRange.max) return false;
+      } else if (listing.exterior) {
+        // Fallback: exterior name from title
+        if (!listing.exterior.toLowerCase().includes(wearRange.name.toLowerCase())) return false;
+      }
+    }
+  }
+
+  if (tracked.wear_type === 'custom') {
+    if (listing.floatValue != null) {
+      if (tracked.min_float && listing.floatValue < parseFloat(tracked.min_float)) return false;
+      if (tracked.max_float && listing.floatValue > parseFloat(tracked.max_float)) return false;
+    }
+  }
+
+  // 5. Pattern number
+  if (tracked.pattern_number) {
+    if (listing.paintSeed == null || listing.paintSeed !== parseInt(tracked.pattern_number, 10)) {
+      return false;
+    }
+  }
+
+  // 6. Doppler phase — DMarket returns the phase as a string (e.g. "Phase 1", "Ruby")
+  //    Map the tracked finish_catalog ID through DOPPLER_PHASES to get the expected string.
+  if (tracked.finish_catalog) {
+    const expectedPhase = DOPPLER_PHASES[parseInt(tracked.finish_catalog, 10)];
+    if (expectedPhase) {
+      if (!listing.phase || listing.phase !== expectedPhase) return false;
+    }
+  }
+
+  return true;
+}
+
+/**
+ * Check DMarket for listings matching a single tracked item, save matches to DB,
+ * and notify the user of any new ones found.
+ */
+async function checkDMarketListingsForItem(trackedItem) {
+  if (trackedItem.status !== 'tracking') return;
+
+  try {
+    const listings = await fetchDMarketListings(trackedItem.weapon_name, trackedItem.skin_name);
+    const newMatches = [];
+
+    for (const listing of listings) {
+      if (!doesDMarketListingMatch(listing, trackedItem)) continue;
+
+      try {
+        const result = await pool.query(
+          `INSERT INTO skinport_matches
+            (tracked_item_id, sale_id, market_hash_name, sale_price, suggested_price,
+             wear_float, exterior, pattern, finish, stattrak, image_url, skinport_url, phase,
+             source, external_id)
+           VALUES ($1, NULL, $2, $3, $4, $5, $6, $7, NULL, $8, $9, $10, $11, 'dmarket', $12)
+           ON CONFLICT (tracked_item_id, external_id)
+             WHERE source = 'dmarket' AND external_id IS NOT NULL
+           DO NOTHING
+           RETURNING id`,
+          [
+            trackedItem.id,
+            listing.title,
+            listing.price,
+            listing.suggestedPrice,
+            listing.floatValue,
+            listing.exterior,
+            listing.paintSeed,
+            listing.isStatTrak,
+            listing.image,
+            listing.listingUrl,
+            listing.phase,
+            listing.objectId
+          ]
+        );
+
+        if (result.rows.length > 0) {
+          newMatches.push(listing);
+        }
+      } catch (dbErr) {
+        if (dbErr.code !== '23505') {
+          console.error('Error saving DMarket match:', dbErr.message);
+        }
+      }
+    }
+
+    if (newMatches.length > 0) {
+      console.log(`✅ DMarket: ${newMatches.length} new match(es) for ${trackedItem.weapon_name} | ${trackedItem.skin_name} (user ${trackedItem.user_id})`);
+      notifyUserOfDMarketMatches(trackedItem.user_id, trackedItem, newMatches).catch(err => {
+        console.error('DMarket notification error:', err.message);
+      });
+    }
+  } catch (err) {
+    console.error(`DMarket scan error for ${trackedItem.weapon_name} | ${trackedItem.skin_name}:`, err.message);
+  }
+}
+
+/**
+ * Scan DMarket for all currently active tracked items.
+ * Adds a small delay between items to avoid triggering rate limits.
+ */
+async function checkAllDMarketListings() {
+  console.log('🔍 DMarket: scanning listings for all tracked items...');
+  try {
+    const result = await pool.query(
+      "SELECT * FROM tracked_items WHERE status = 'tracking'"
+    );
+    const allTracked = result.rows;
+
+    if (allTracked.length === 0) {
+      console.log('   DMarket: no active tracked items');
+      return;
+    }
+
+    let totalNew = 0;
+    for (let i = 0; i < allTracked.length; i++) {
+      const tracked = allTracked[i];
+      const before = totalNew;
+      await checkDMarketListingsForItem(tracked);
+      // Small inter-request delay so we don't hammer DMarket
+      if (i < allTracked.length - 1) {
+        await new Promise(r => setTimeout(r, 250));
+      }
+    }
+
+    console.log(`🔍 DMarket scan complete`);
+  } catch (err) {
+    console.error('Error during DMarket scan:', err.message);
+  }
+}
+
+/**
+ * Send DMarket match notifications to a user via all their enabled methods.
+ */
+async function notifyUserOfDMarketMatches(userId, trackedItem, listings) {
+  try {
+    const settings = await pool.query(
+      'SELECT * FROM notification_settings WHERE user_id = $1 AND enabled = true',
+      [userId]
+    );
+    if (settings.rows.length === 0) return;
+
+    for (const setting of settings.rows) {
+      if (setting.method === 'discord') {
+        try {
+          await sendDMarketDiscordNotification(setting.value, trackedItem, listings);
+        } catch (err) {
+          console.error(`DMarket Discord notification failed for user ${userId}:`, err.message);
+        }
+      }
+    }
+  } catch (err) {
+    console.error('Error sending DMarket notifications:', err);
+  }
+}
+
+/**
+ * Format and send DMarket match results to Discord.
+ */
+async function sendDMarketDiscordNotification(webhookUrl, trackedItem, listings) {
+  const itemName = `${trackedItem.weapon_name} | ${trackedItem.skin_name}`;
+
+  const fields = listings.slice(0, 10).map((listing, i) => {
+    const price    = listing.price != null ? `$${listing.price.toFixed(2)}` : 'N/A';
+    const wear     = listing.exterior || 'Unknown';
+    const floatStr = listing.floatValue != null ? `Float: ${listing.floatValue.toFixed(4)}\n` : '';
+    const phase    = listing.phase ? ` (${listing.phase})` : '';
+    const st       = listing.isStatTrak ? ' StatTrak™' : '';
+
+    return {
+      name:   `${i + 1}. ${wear}${phase}${st} — ${price}`,
+      value:  `${floatStr}${listing.paintSeed ? `Pattern: #${listing.paintSeed}\n` : ''}[View on DMarket](${listing.listingUrl})`,
+      inline: false
+    };
+  });
+
+  const embed = {
+    title:  `🎯 DMarket: ${listings.length} match${listings.length === 1 ? '' : 'es'} for ${itemName}`,
+    color:  0x9b6fff,  // Purple to distinguish DMarket from Skinport (teal)
+    fields: fields,
+    footer: { text: 'CS2 Skin Tracker — DMarket' },
+    timestamp: new Date().toISOString()
+  };
+
+  if (trackedItem.min_price || trackedItem.max_price) {
+    const range = trackedItem.min_price && trackedItem.max_price
+      ? `$${trackedItem.min_price} – $${trackedItem.max_price}`
+      : trackedItem.min_price
+        ? `From $${trackedItem.min_price}`
+        : `Up to $${trackedItem.max_price}`;
+    embed.description = `Target price range: ${range}`;
+  }
+
+  if (listings.length > 10) {
+    embed.description = (embed.description || '') +
+      `\n\n*Showing top 10 of ${listings.length} matches. Check your profile for all results.*`;
+  }
+
+  await sendDiscordNotification(webhookUrl, embed);
+}
+
+// ============================================
 // Auto-Cleanup & Refresh
 // ============================================
 
@@ -1290,12 +2112,11 @@ async function cleanupOldMatches() {
 // Clean up old matches every hour
 setInterval(cleanupOldMatches, 60 * 60 * 1000);
 
-// Re-scan existing listings every 15 minutes to keep prices fresh
+// Re-scan existing listings every 15 minutes to keep prices fresh (both markets)
 setInterval(async () => {
-  // Clear old matches first
   await cleanupOldMatches();
-  // Then re-scan
-  await checkAllExistingListings();
+  await checkAllExistingListings();      // Skinport REST scan
+  await checkAllDMarketListings();       // DMarket scan
 }, 15 * 60 * 1000);
 
 // ============================================
@@ -1305,64 +2126,10 @@ setInterval(async () => {
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
 
-  // Clean old matches on startup, then every hour
-  async function cleanOldMatches() {
-    try {
-      const result = await pool.query(
-        "DELETE FROM skinport_matches WHERE found_at < NOW() - INTERVAL '24 hours' RETURNING id"
-      );
-      if (result.rows.length > 0) {
-        console.log(`🧹 Cleaned ${result.rows.length} old match(es)`);
-      }
-    } catch (err) {
-      console.error('Error cleaning old matches:', err.message);
-    }
-  }
-
-  cleanOldMatches();
-  setInterval(cleanOldMatches, 60 * 60 * 1000); // Every hour
-
-  // Clean up old matches on startup
-  pool.query("DELETE FROM skinport_matches WHERE found_at < NOW() - INTERVAL '24 hours'")
-    .then(result => {
-      if (result.rowCount > 0) {
-        console.log(`🧹 Cleaned up ${result.rowCount} stale match(es)`);
-      }
-    })
-    .catch(err => console.error('Cleanup error:', err.message));
-
-  // Auto-cleanup every hour
-  setInterval(async () => {
-    try {
-      const result = await pool.query("DELETE FROM skinport_matches WHERE found_at < NOW() - INTERVAL '24 hours'");
-      if (result.rowCount > 0) {
-        console.log(`🧹 Auto-cleanup: removed ${result.rowCount} stale match(es)`);
-      }
-    } catch (err) {
-      console.error('Auto-cleanup error:', err.message);
-    }
-  }, 60 * 60 * 1000); // Every hour
-
-  // Clean old matches on startup
-  pool.query("DELETE FROM skinport_matches WHERE found_at < NOW() - INTERVAL '24 hours'")
-    .then(res => {
-      if (res.rowCount > 0) console.log(`🧹 Cleaned ${res.rowCount} old match(es)`);
-    })
-    .catch(err => console.error('Cleanup error:', err.message));
-
-  // Auto-clean old matches every hour
-  setInterval(() => {
-    pool.query("DELETE FROM skinport_matches WHERE found_at < NOW() - INTERVAL '24 hours'")
-      .then(res => {
-        if (res.rowCount > 0) console.log(`🧹 Auto-cleaned ${res.rowCount} old match(es)`);
-      })
-      .catch(err => console.error('Auto-cleanup error:', err.message));
-  }, 60 * 60 * 1000); // Every hour
-
   // Connect to Skinport websocket for real-time new listings
   connectSkinportWebsocket();
 
-  // Clean old matches, then check existing listings (after short delay)
+  // After a short delay, clean old matches and do the initial scan of existing listings
   setTimeout(async () => {
     await cleanupOldMatches();
     await checkAllExistingListings();

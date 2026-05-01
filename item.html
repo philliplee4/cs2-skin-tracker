@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CS2 Skin Details</title>
   <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/market-prices.css" />
+  <!-- Chart.js for Skinport price history graph -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 </head>
 
 <body>
@@ -103,6 +106,75 @@
       </div>
 
     </div>
+  </section>
+
+  <!-- Market Prices Section -->
+  <section class="market-prices-section">
+    <div class="market-prices-inner">
+
+      <!-- Header row -->
+      <div class="mp-header">
+        <div class="mp-header-left">
+          <h2 class="market-prices-title">Market Prices</h2>
+          <p class="market-prices-subtitle" id="mpSubtitle">Skinport price history · Loading…</p>
+        </div>
+        <span class="mp-wear-badge" id="mpWearBadge"></span>
+      </div>
+
+      <!-- Price history chart -->
+      <div class="mp-chart-wrap">
+        <canvas id="priceHistoryChart"></canvas>
+        <div class="mp-chart-overlay" id="mpChartLoading">
+          <span class="mp-chart-loading-text">Loading price history…</span>
+        </div>
+      </div>
+
+      <!-- Legend -->
+      <div class="mp-legend">
+        <span class="mp-legend-item">
+          <span class="mp-legend-line mp-legend-median"></span>Median price
+        </span>
+        <span class="mp-legend-item">
+          <span class="mp-legend-line mp-legend-min"></span>Min price
+        </span>
+      </div>
+
+      <!-- Current prices — compact horizontal pills -->
+      <div class="mp-price-row" id="mpPriceRow">
+
+        <!-- Skinport -->
+        <div class="mp-source-pill" id="mpsPill-skinport">
+          <div class="mps-header">
+            <span class="mps-badge sp">SP</span>
+            <span class="mps-name">Skinport</span>
+          </div>
+          <div class="mps-price" id="mpsPrice-skinport"><span class="mps-loading">…</span></div>
+          <a class="mps-link" id="mpsLink-skinport" href="https://skinport.com" target="_blank" rel="noopener noreferrer">View →</a>
+        </div>
+
+        <!-- DMarket -->
+        <div class="mp-source-pill" id="mpsPill-dmarket">
+          <div class="mps-header">
+            <span class="mps-badge dm">DM</span>
+            <span class="mps-name">DMarket</span>
+          </div>
+          <div class="mps-price" id="mpsPrice-dmarket"><span class="mps-loading">…</span></div>
+          <a class="mps-link" id="mpsLink-dmarket" href="https://dmarket.com" target="_blank" rel="noopener noreferrer">View →</a>
+        </div>
+
+        <!-- Steam -->
+        <div class="mp-source-pill" id="mpsPill-steam">
+          <div class="mps-header">
+            <span class="mps-badge st">ST</span>
+            <span class="mps-name">Steam</span>
+          </div>
+          <div class="mps-price" id="mpsPrice-steam"><span class="mps-loading">…</span></div>
+          <a class="mps-link" id="mpsLink-steam" href="https://steamcommunity.com/market" target="_blank" rel="noopener noreferrer">View →</a>
+        </div>
+
+      </div><!-- /.mp-price-row -->
+
+    </div><!-- /.market-prices-inner -->
   </section>
 
   <!-- Tracking Modal -->

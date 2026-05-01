@@ -43,6 +43,10 @@ async function loadItemDetails() {
     // Display the item details
     displayItemDetails(currentSkin);
 
+    // Load market prices + price history graph (non-blocking — both fire in background)
+    loadMarketPrices(currentSkin).catch(err => console.warn('Market prices error:', err));
+    loadPriceHistory(currentSkin).catch(err => console.warn('Price history error:', err));
+
     // Load related skins
     await loadRelatedSkins(currentSkin);
 
@@ -420,6 +424,260 @@ function showErrorToast(message) {
     toast.classList.add('toast-fade-out');
     setTimeout(() => toast.remove(), 300);
   }, 4000);
+}
+
+// ============================================
+// Market Price Comparison
+// ============================================
+
+// Module-level chart instance so we can destroy + recreate cleanly on nav
+let _priceChart = null;
+
+/**
+ * Fetch multi-market spot prices and render them into the compact price pills.
+ * Called after loadItemDetails() resolves so we have weapon/skin names.
+ */
+async function loadMarketPrices(skin) {
+  const weaponName = skin.weapon?.name;
+  const skinName   = skin.pattern?.name || skin.name;
+
+  if (!weaponName || !skinName) {
+    const section = document.querySelector('.market-prices-section');
+    if (section) section.style.display = 'none';
+    return;
+  }
+
+  try {
+    const params = new URLSearchParams({ weapon: weaponName, skin: skinName });
+    const data   = await apiRequest(`/market-prices?${params}`);
+    renderMarketPrices(data);
+  } catch (err) {
+    console.warn('Market price fetch failed:', err.message);
+    renderMarketPricesError();
+  }
+}
+
+/**
+ * Fetch Skinport price history and render the Chart.js graph.
+ */
+async function loadPriceHistory(skin) {
+  const weaponName = skin.weapon?.name;
+  const skinName   = skin.pattern?.name || skin.name;
+
+  if (!weaponName || !skinName) return;
+
+  try {
+    const params = new URLSearchParams({ weapon: weaponName, skin: skinName });
+    const data   = await apiRequest(`/price-history?${params}`);
+    renderPriceChart(data.history);
+  } catch (err) {
+    console.warn('Price history fetch failed:', err.message);
+    const overlay = document.getElementById('mpChartLoading');
+    if (overlay) overlay.innerHTML = '<span class="mp-chart-loading-text">Price history unavailable</span>';
+  }
+}
+
+/**
+ * Draw the Skinport price history chart using Chart.js.
+ * @param {Object|null} history  - { wear, points: [{label, min, median, volume}] }
+ */
+function renderPriceChart(history) {
+  const canvas    = document.getElementById('priceHistoryChart');
+  const overlay   = document.getElementById('mpChartLoading');
+  const wearBadge = document.getElementById('mpWearBadge');
+  const subtitle  = document.getElementById('mpSubtitle');
+
+  if (!canvas) return;
+
+  if (!history || !Array.isArray(history.points) || history.points.every(p => p.median == null && p.min == null)) {
+    if (overlay) overlay.innerHTML = '<span class="mp-chart-loading-text">No price history available</span>';
+    return;
+  }
+
+  // Hide the loading overlay
+  if (overlay) overlay.style.display = 'none';
+
+  // Wear badge
+  if (wearBadge && history.wear) {
+    wearBadge.textContent = history.wear;
+    wearBadge.style.display = 'inline-block';
+  }
+
+  // Subtitle hint
+  if (subtitle) subtitle.textContent = 'Skinport price history · all listings · Skinport data';
+
+  const labels     = history.points.map(p => p.label);
+  const medianData = history.points.map(p => p.median);
+  const minData    = history.points.map(p => p.min);
+
+  // Destroy previous chart if navigating between skins
+  if (_priceChart) {
+    _priceChart.destroy();
+    _priceChart = null;
+  }
+
+  const ctx = canvas.getContext('2d');
+
+  // Teal gradient fill under the median line
+  // Use the canvas's CSS height as fallback; offsetHeight can be 0 before layout
+  const chartHeight = canvas.offsetHeight || canvas.parentElement?.offsetHeight || 220;
+  const gradient = ctx.createLinearGradient(0, 0, 0, chartHeight);
+  gradient.addColorStop(0, 'rgba(58, 242, 255, 0.22)');
+  gradient.addColorStop(1, 'rgba(58, 242, 255, 0.01)');
+
+  _priceChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Median',
+          data: medianData,
+          borderColor: '#3af2ff',
+          backgroundColor: gradient,
+          borderWidth: 2.5,
+          pointBackgroundColor: '#3af2ff',
+          pointBorderColor: '#0f1115',
+          pointBorderWidth: 2,
+          pointRadius: 5,
+          pointHoverRadius: 7,
+          fill: true,
+          tension: 0.35,
+          spanGaps: true
+        },
+        {
+          label: 'Min',
+          data: minData,
+          borderColor: 'rgba(255, 255, 255, 0.28)',
+          backgroundColor: 'transparent',
+          borderWidth: 1.5,
+          borderDash: [5, 4],
+          pointBackgroundColor: 'rgba(255, 255, 255, 0.45)',
+          pointBorderColor: '#0f1115',
+          pointBorderWidth: 1,
+          pointRadius: 4,
+          pointHoverRadius: 6,
+          fill: false,
+          tension: 0.35,
+          spanGaps: true
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { intersect: false, mode: 'index' },
+      animation: { duration: 600, easing: 'easeOutQuart' },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#1a1c22',
+          borderColor: '#3a3c43',
+          borderWidth: 1,
+          titleColor: '#888',
+          titleFont: { size: 11 },
+          bodyColor: '#e0e0e0',
+          bodyFont: { size: 13 },
+          padding: 12,
+          displayColors: true,
+          callbacks: {
+            title: (items) => items[0]?.label ?? '',
+            label: (ctx) => {
+              const v = ctx.raw;
+              return `  ${ctx.dataset.label}:  ${v != null ? '$' + v.toFixed(2) : 'N/A'}`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid:   { color: 'rgba(255,255,255,0.04)', drawBorder: false },
+          ticks:  { color: '#666', font: { size: 12 }, padding: 6 },
+          border: { color: '#2a2c33' }
+        },
+        y: {
+          grid:   { color: 'rgba(255,255,255,0.04)', drawBorder: false },
+          ticks:  {
+            color: '#666',
+            font:  { size: 12 },
+            padding: 8,
+            callback: (v) => v != null ? '$' + v.toFixed(2) : ''
+          },
+          border: { color: '#2a2c33' }
+        }
+      }
+    }
+  });
+}
+
+/**
+ * Render current market spot prices into the compact price pills.
+ * Marks the cheapest source with an accent border + badge.
+ */
+function renderMarketPrices(data) {
+  const sources = [
+    { key: 'skinport', pillId: 'mpsPill-skinport', priceId: 'mpsPrice-skinport', linkId: 'mpsLink-skinport' },
+    { key: 'dmarket',  pillId: 'mpsPill-dmarket',  priceId: 'mpsPrice-dmarket',  linkId: 'mpsLink-dmarket'  },
+    { key: 'steam',    pillId: 'mpsPill-steam',     priceId: 'mpsPrice-steam',    linkId: 'mpsLink-steam'    }
+  ];
+
+  const validPrices = [];
+
+  sources.forEach(({ key, pillId, priceId, linkId }) => {
+    const pill    = document.getElementById(pillId);
+    const priceEl = document.getElementById(priceId);
+    const linkEl  = document.getElementById(linkId);
+    const source  = data[key];
+
+    if (!pill || !priceEl) return;
+
+    if (source && source.price != null && source.price > 0) {
+      const formatted = '$' + source.price.toFixed(2);
+      let sub = '';
+      if (key === 'steam') {
+        sub = '<span class="mps-sub">Field-Tested · incl. fee</span>';
+      } else if (source.count != null) {
+        sub = `<span class="mps-sub">${source.count} listing${source.count !== 1 ? 's' : ''}</span>`;
+      }
+      priceEl.innerHTML = `<span class="mps-price-value">${formatted}</span>${sub}`;
+
+      if (linkEl && source.url) linkEl.href = source.url;
+
+      validPrices.push({ key, price: source.price, pillId, priceId });
+    } else {
+      priceEl.innerHTML = '<span class="mps-unavailable">—</span>';
+      pill.classList.add('mps-pill-unavailable');
+      if (linkEl) linkEl.style.display = 'none';
+    }
+  });
+
+  // Highlight cheapest
+  if (validPrices.length > 1) {
+    const cheapest = validPrices.reduce((a, b) => a.price <= b.price ? a : b);
+    const pill = document.getElementById(cheapest.pillId);
+    if (pill) {
+      pill.classList.add('mps-pill-cheapest');
+      const priceEl = document.getElementById(cheapest.priceId);
+      if (priceEl) {
+        const badge = document.createElement('span');
+        badge.className = 'mps-cheapest-badge';
+        badge.textContent = 'Cheapest';
+        priceEl.appendChild(badge);
+      }
+    }
+  }
+}
+
+/** Render error state in all price pills. */
+function renderMarketPricesError() {
+  ['mpsPrice-skinport', 'mpsPrice-dmarket', 'mpsPrice-steam'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = '<span class="mps-unavailable">—</span>';
+  });
+  ['mpsLink-skinport', 'mpsLink-dmarket', 'mpsLink-steam'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  });
 }
 
 // ============================================

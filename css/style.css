@@ -1201,6 +1201,128 @@ footer {
   background: rgba(255, 77, 77, 0.9) !important;
 }
 
+/* ---------- Notification Settings Section ---------- */
+.notification-section {
+  margin-bottom: 3rem;
+}
+
+.notification-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.notification-method {
+  background-color: #1a1c22;
+  border: 1px solid #2a2c33;
+  border-radius: 12px;
+  overflow: hidden;
+  transition: border-color 0.2s ease;
+}
+
+.notification-method:not(.disabled):hover {
+  border-color: #3af2ff;
+}
+
+.notification-method.disabled {
+  opacity: 0.5;
+}
+
+.method-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+}
+
+.method-icon {
+  font-size: 1.25rem;
+  flex-shrink: 0;
+}
+
+.method-header h3 {
+  margin: 0;
+  color: #e0e0e0;
+  font-size: 1rem;
+  font-weight: 600;
+  flex: 1;
+}
+
+.method-status {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 20px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  background-color: rgba(136, 136, 136, 0.15);
+  color: #888;
+  border: 1px solid #2a2c33;
+}
+
+.method-status.active,
+.method-status.status-active {
+  background-color: rgba(76, 175, 80, 0.15);
+  color: #4caf50;
+  border-color: rgba(76, 175, 80, 0.4);
+}
+
+.method-body {
+  padding: 0 20px 20px;
+  border-top: 1px solid #2a2c33;
+  padding-top: 16px;
+}
+
+.method-description {
+  color: #888;
+  font-size: 0.875rem;
+  margin: 0 0 14px 0;
+  line-height: 1.5;
+}
+
+.method-description a {
+  color: #3af2ff;
+  text-decoration: none;
+}
+
+.method-description a:hover {
+  text-decoration: underline;
+}
+
+.method-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+input.full-width {
+  width: 100%;
+  padding: 10px 14px;
+  background-color: #10131a;
+  border: 1px solid #2a2c33;
+  border-radius: 6px;
+  color: #e0e0e0;
+  font-size: 0.9rem;
+  transition: border-color 0.2s ease;
+}
+
+input.full-width:focus {
+  outline: none;
+  border-color: #3af2ff;
+}
+
+.method-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.method-actions .btn-primary,
+.method-actions .btn-secondary,
+.method-actions .btn-delete {
+  padding: 8px 18px;
+  font-size: 0.875rem;
+}
+
 /* Mobile responsiveness */
 @media (max-width: 768px) {
   .profile-stats {
