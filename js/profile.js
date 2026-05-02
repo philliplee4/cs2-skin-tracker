@@ -643,7 +643,7 @@ function createMatchCard(match) {
     <div class="listing-actions">
       ${match.skinport_url ? `
         <a href="${match.skinport_url}" target="_blank" rel="noopener noreferrer" class="btn-view-skinport">
-          View on Skinport
+          ${match.source === 'dmarket' ? 'View on DMarket' : 'View on Skinport'}
         </a>
       ` : ''}
     </div>

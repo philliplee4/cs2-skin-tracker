@@ -1165,7 +1165,10 @@ function fetchDMarketPrice(searchTitle) {
           const json = JSON.parse(raw);
           if (json.objects && json.objects.length > 0) {
             const prices = json.objects
-              .map(obj => obj.price && obj.price.USD ? parseInt(obj.price.USD, 10) : null)
+              .map(obj => {
+                const usd = obj.price && obj.price.USD;
+                return usd && usd !== '' ? parseInt(usd, 10) : null;
+              })
               .filter(p => p !== null && p > 0);
 
             if (prices.length > 0) {
@@ -1877,33 +1880,38 @@ function fetchDMarketListings(weaponName, skinName) {
 
           const listings = json.objects.map(obj => {
             const itemTitle = obj.title || '';
+            const itemId = obj.itemId || null; // DMarket uses itemId not objectId
 
             // Wear condition is in the title parenthetical: "AK-47 | Redline (Field-Tested)"
             const wearMatch = itemTitle.match(/\(([^)]+)\)$/);
             const exterior = wearMatch ? wearMatch[1] : null;
 
-            const price = obj.price && obj.price.USD
-              ? parseInt(obj.price.USD, 10) / 100 : null;
-            const suggestedPrice = obj.suggestPrice && obj.suggestPrice.USD
-              ? parseInt(obj.suggestPrice.USD, 10) / 100 : null;
+            // DMarket prices are in USD cents as a string e.g. "4050" = $40.50
+            const priceUSD = obj.price && obj.price.USD ? obj.price.USD : null;
+            const price = priceUSD && priceUSD !== '' ? parseInt(priceUSD, 10) / 100 : null;
+
+            const suggestedUSD = obj.suggestedPrice && obj.suggestedPrice.USD ? obj.suggestedPrice.USD : null;
+            const suggestedPrice = suggestedUSD && suggestedUSD !== '' ? parseInt(suggestedUSD, 10) / 100 : null;
 
             const extra = obj.extra || {};
 
+            // DMarket exterior is lowercase in extra.exterior e.g. "field-tested"
+            const exteriorFromExtra = extra.exterior ? extra.exterior
+              .split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join('-') : exterior;
+
             return {
-              objectId:       obj.objectId || null,
+              objectId:       itemId,
               title:          itemTitle,
               price:          price,
               suggestedPrice: suggestedPrice,
               floatValue:     extra.floatValue != null ? parseFloat(extra.floatValue) : null,
               paintSeed:      extra.paintSeed != null ? parseInt(extra.paintSeed, 10) : null,
-              phase:          extra.phase || null,  // e.g. "Phase 1", "Ruby", null
+              phase:          extra.phase || null,
               isStatTrak:     extra.isStatTrak || false,
               isSouvenir:     extra.isSouvenir || false,
-              exterior:       exterior,
+              exterior:       exteriorFromExtra,
               image:          obj.image || null,
-              listingUrl:     obj.objectId
-                ? `https://dmarket.com/ingame-items/item-list/csgo-skins?type=item&id=${obj.objectId}`
-                : `https://dmarket.com/ingame-items/item-list/csgo-skins?userOffersSearch=${encodedTitle}`
+              listingUrl:     `https://dmarket.com/ingame-items/item-list/csgo-skins?userOffersSearch=${encodedTitle}&orderBy=price&orderDir=asc`
             };
           }).filter(l => l.objectId && l.price != null && l.price > 0);
 
