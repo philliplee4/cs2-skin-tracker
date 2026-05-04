@@ -41,7 +41,7 @@
     </div>
 
     <input type="text" placeholder="Search items" id="searchBar" />
-    <a href="#" class="nav-link">How it works</a>
+    <a href="how-it-works.html" class="nav-link">How it works</a>
 
   </nav>
 
@@ -56,6 +56,27 @@
 <main>
   <section class="hero">
     <h1>Browse and Discover CS2 Items to track!</h1>
+  </section>
+
+  <!-- Dashboard summary — only shown when logged in, populated by home.js -->
+  <section class="dashboard-summary hidden" id="dashboardSummary">
+    <div class="dashboard-inner">
+      <div class="dashboard-stat">
+        <span class="dashboard-number" id="dashTracked">0</span>
+        <span class="dashboard-label">Tracked Items</span>
+      </div>
+      <div class="dashboard-divider"></div>
+      <div class="dashboard-stat">
+        <span class="dashboard-number highlight" id="dashMatches">0</span>
+        <span class="dashboard-label">Active Matches</span>
+      </div>
+      <div class="dashboard-divider"></div>
+      <div class="dashboard-stat">
+        <span class="dashboard-number" id="dashTracking">0</span>
+        <span class="dashboard-label">Still Tracking</span>
+      </div>
+      <a href="profile.html" class="dashboard-link">View Profile →</a>
+    </div>
   </section>
 
   <section class="content">
@@ -73,6 +94,8 @@
 
 <!-- ✅ SHARED API MODULE -->
 <script src="js/api.js"></script>
+<!-- ✅ AUTH MODULE (needed for apiRequest and login state) -->
+<script src="js/auth.js"></script>
 <!-- ✅ SHARED NAVIGATION -->
 <script src="js/navigation.js" defer></script>
 <!-- ✅ HOME PAGE SCRIPT -->

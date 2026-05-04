@@ -5,6 +5,18 @@
 let trackedItems = [];
 let currentFilter = 'all';
 let editingItemId = null;
+let activeFilters = {
+  search: '',
+  sort: 'newest',
+  minPrice: null,
+  maxPrice: null,
+  minFloat: null,
+  maxFloat: null,
+  wear: '',
+  stattrak: '',
+  souvenir: '',
+  pattern: null
+};
 
 // ============================================
 // Load and Display Tracked Items
@@ -65,8 +77,84 @@ function renderTrackedItems() {
   const emptyState = document.getElementById('emptyState');
 
   let filteredItems = trackedItems;
+
+  // Status filter
   if (currentFilter !== 'all') {
-    filteredItems = trackedItems.filter(item => item.status === currentFilter);
+    filteredItems = filteredItems.filter(item => item.status === currentFilter);
+  }
+
+  // Search
+  if (activeFilters.search) {
+    const q = activeFilters.search.toLowerCase();
+    filteredItems = filteredItems.filter(item =>
+      item.weaponName.toLowerCase().includes(q) || item.skinName.toLowerCase().includes(q)
+    );
+  }
+
+  // Price range
+  if (activeFilters.minPrice != null) {
+    filteredItems = filteredItems.filter(item => item.maxPrice == null || item.maxPrice >= activeFilters.minPrice);
+  }
+  if (activeFilters.maxPrice != null) {
+    filteredItems = filteredItems.filter(item => item.minPrice == null || item.minPrice <= activeFilters.maxPrice);
+  }
+
+  // Float range
+  if (activeFilters.minFloat != null) {
+    filteredItems = filteredItems.filter(item => item.maxFloat == null || item.maxFloat >= activeFilters.minFloat);
+  }
+  if (activeFilters.maxFloat != null) {
+    filteredItems = filteredItems.filter(item => item.minFloat == null || item.minFloat <= activeFilters.maxFloat);
+  }
+
+  // Wear
+  if (activeFilters.wear) {
+    filteredItems = filteredItems.filter(item =>
+      item.wearType === 'any' || item.presetWear === activeFilters.wear
+    );
+  }
+
+  // StatTrak
+  if (activeFilters.stattrak) {
+    filteredItems = filteredItems.filter(item => item.stattrak === activeFilters.stattrak);
+  }
+
+  // Souvenir
+  if (activeFilters.souvenir) {
+    filteredItems = filteredItems.filter(item => item.souvenir === activeFilters.souvenir);
+  }
+
+  // Pattern
+  if (activeFilters.pattern != null) {
+    filteredItems = filteredItems.filter(item => item.patternNumber === activeFilters.pattern);
+  }
+
+  // Sort
+  switch (activeFilters.sort) {
+    case 'oldest':
+      filteredItems.sort((a, b) => new Date(a.dateAdded) - new Date(b.dateAdded));
+      break;
+    case 'name':
+      filteredItems.sort((a, b) => `${a.weaponName} ${a.skinName}`.localeCompare(`${b.weaponName} ${b.skinName}`));
+      break;
+    case 'price_asc':
+      filteredItems.sort((a, b) => (a.minPrice || 0) - (b.minPrice || 0));
+      break;
+    case 'price_desc':
+      filteredItems.sort((a, b) => (b.maxPrice || 0) - (a.maxPrice || 0));
+      break;
+    default: // newest
+      filteredItems.sort((a, b) => new Date(b.dateAdded) - new Date(a.dateAdded));
+  }
+
+  // Update filter button indicator
+  const activeCount = Object.entries(activeFilters).filter(([k, v]) =>
+    k !== 'sort' && v !== '' && v !== null
+  ).length;
+  const filterBtn = document.getElementById('advancedFilterBtn');
+  if (filterBtn) {
+    filterBtn.textContent = activeCount > 0 ? `⚙ Filter (${activeCount})` : '⚙ Filter';
+    filterBtn.classList.toggle('filter-active', activeCount > 0);
   }
 
   if (filteredItems.length === 0) {
@@ -76,7 +164,6 @@ function renderTrackedItems() {
   }
 
   emptyState.classList.add('hidden');
-  filteredItems.sort((a, b) => new Date(b.dateAdded) - new Date(a.dateAdded));
   container.innerHTML = filteredItems.map(item => createTrackedItemCard(item)).join('');
   setupCardEventListeners();
 }
@@ -237,13 +324,74 @@ function setupCardEventListeners() {
 // ============================================
 
 function setupFilters() {
-  document.querySelectorAll('.filter-btn').forEach(btn => {
+  // Status filter buttons (All / Found / Tracking / Cancelled)
+  document.querySelectorAll('.filter-btn[data-filter]').forEach(btn => {
     btn.addEventListener('click', () => {
-      document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.filter-btn[data-filter]').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       currentFilter = btn.dataset.filter;
       renderTrackedItems();
     });
+  });
+
+  // Advanced filter panel toggle
+  const advancedBtn = document.getElementById('advancedFilterBtn');
+  const filterPanel = document.getElementById('advancedFilterPanel');
+
+  if (advancedBtn && filterPanel) {
+    advancedBtn.addEventListener('click', () => {
+      filterPanel.classList.toggle('hidden');
+      advancedBtn.classList.toggle('active');
+    });
+  }
+
+  // Apply button
+  const applyBtn = document.getElementById('filterApplyBtn');
+  if (applyBtn) {
+    applyBtn.addEventListener('click', () => {
+      activeFilters.search    = document.getElementById('filterSearch').value.trim();
+      activeFilters.sort      = document.getElementById('filterSort').value;
+      activeFilters.minPrice  = document.getElementById('filterMinPrice').value !== '' ? parseFloat(document.getElementById('filterMinPrice').value) : null;
+      activeFilters.maxPrice  = document.getElementById('filterMaxPrice').value !== '' ? parseFloat(document.getElementById('filterMaxPrice').value) : null;
+      activeFilters.minFloat  = document.getElementById('filterMinFloat').value !== '' ? parseFloat(document.getElementById('filterMinFloat').value) : null;
+      activeFilters.maxFloat  = document.getElementById('filterMaxFloat').value !== '' ? parseFloat(document.getElementById('filterMaxFloat').value) : null;
+      activeFilters.wear      = document.getElementById('filterWear').value;
+      activeFilters.stattrak  = document.getElementById('filterStattrak').value;
+      activeFilters.souvenir  = document.getElementById('filterSouvenir').value;
+      activeFilters.pattern   = document.getElementById('filterPattern').value !== '' ? parseInt(document.getElementById('filterPattern').value) : null;
+      filterPanel.classList.add('hidden');
+      advancedBtn.classList.remove('active');
+      renderTrackedItems();
+    });
+  }
+
+  // Reset button
+  const resetBtn = document.getElementById('filterResetBtn');
+  if (resetBtn) {
+    resetBtn.addEventListener('click', () => {
+      activeFilters = { search: '', sort: 'newest', minPrice: null, maxPrice: null, minFloat: null, maxFloat: null, wear: '', stattrak: '', souvenir: '', pattern: null };
+      document.getElementById('filterSearch').value = '';
+      document.getElementById('filterSort').value = 'newest';
+      document.getElementById('filterMinPrice').value = '';
+      document.getElementById('filterMaxPrice').value = '';
+      document.getElementById('filterMinFloat').value = '';
+      document.getElementById('filterMaxFloat').value = '';
+      document.getElementById('filterWear').value = '';
+      document.getElementById('filterStattrak').value = '';
+      document.getElementById('filterSouvenir').value = '';
+      document.getElementById('filterPattern').value = '';
+      renderTrackedItems();
+    });
+  }
+
+  // Close panel when clicking outside
+  document.addEventListener('click', (e) => {
+    if (filterPanel && !filterPanel.classList.contains('hidden')) {
+      if (!filterPanel.contains(e.target) && e.target !== advancedBtn) {
+        filterPanel.classList.add('hidden');
+        advancedBtn.classList.remove('active');
+      }
+    }
   });
 }
 

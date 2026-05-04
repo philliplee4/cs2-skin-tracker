@@ -214,6 +214,31 @@ function handleURLParameters() {
 // Initialize
 // ============================================
 
+async function loadDashboardSummary() {
+  try {
+    // Check login state first — apiRequest throws if not logged in
+    const me = await apiRequest('/me');
+    if (!me || !me.user) return;
+
+    const [tracked, matches] = await Promise.all([
+      apiRequest('/tracked'),
+      apiRequest('/matches')
+    ]);
+
+    const totalTracked  = tracked.length;
+    const totalMatches  = matches.length;
+    const stillTracking = tracked.filter(i => i.status === 'tracking').length;
+
+    document.getElementById('dashTracked').textContent  = totalTracked;
+    document.getElementById('dashMatches').textContent  = totalMatches;
+    document.getElementById('dashTracking').textContent = stillTracking;
+
+    document.getElementById('dashboardSummary').classList.remove('hidden');
+  } catch (_) {
+    // Not logged in or API unavailable — keep summary hidden
+  }
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
   await fetchSkins();
 
@@ -228,4 +253,5 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   setupSearch();
   setupCategoryFilters();
+  loadDashboardSummary();
 });

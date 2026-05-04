@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>How It Works - CS2 Skin Tracker</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <style>
+    /* ── Page Layout ── */
+    .hiw-hero {
+      background: linear-gradient(180deg, #1c1f26, #0f1115);
+      text-align: center;
+      padding: 60px 40px 40px;
+    }
+
+    .hiw-hero h1 {
+      font-size: 2.2rem;
+      font-weight: 700;
+      color: #fff;
+      margin: 0 0 12px;
+    }
+
+    .hiw-hero p {
+      color: #9aa0b0;
+      font-size: 1.05rem;
+      max-width: 560px;
+      margin: 0 auto;
+      line-height: 1.6;
+    }
+
+    .hiw-hero .accent { color: #3af2ff; }
+
+    /* ── Steps Section ── */
+    .hiw-steps {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 60px 40px;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    .hiw-step {
+      background: #1a1c22;
+      border: 1px solid #2a2c33;
+      border-radius: 14px;
+      padding: 28px 32px;
+      display: flex;
+      align-items: flex-start;
+      gap: 24px;
+      transition: border-color 0.2s;
+    }
+
+    .hiw-step:hover {
+      border-color: #3af2ff;
+    }
+
+    .hiw-step-number {
+      background: #3af2ff;
+      color: #0f1115;
+      font-weight: 800;
+      font-size: 1rem;
+      min-width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+
+    .hiw-step-content h3 {
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: #fff;
+      margin: 0 0 8px;
+    }
+
+    .hiw-step-content p {
+      color: #9aa0b0;
+      font-size: 0.92rem;
+      line-height: 1.65;
+      margin: 0;
+    }
+
+    .hiw-step-content p strong {
+      color: #c8ccd8;
+    }
+
+    .hiw-step-content .tip {
+      margin-top: 10px;
+      background: rgba(58, 242, 255, 0.07);
+      border-left: 3px solid #3af2ff;
+      border-radius: 0 6px 6px 0;
+      padding: 8px 12px;
+      font-size: 0.88rem;
+      color: #7ae8f0;
+    }
+
+    /* ── FAQ Section ── */
+    .hiw-faq {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 0 40px 60px;
+    }
+
+    .hiw-faq h2 {
+      font-size: 1.4rem;
+      font-weight: 700;
+      color: #fff;
+      margin: 0 0 20px;
+    }
+
+    .faq-item {
+      border-bottom: 1px solid #2a2c33;
+      padding: 18px 0;
+    }
+
+    .faq-item:last-child {
+      border-bottom: none;
+    }
+
+    .faq-q {
+      font-weight: 600;
+      color: #e0e3ee;
+      font-size: 0.95rem;
+      margin: 0 0 8px;
+    }
+
+    .faq-a {
+      color: #9aa0b0;
+      font-size: 0.9rem;
+      line-height: 1.65;
+      margin: 0;
+    }
+
+    /* ── CTA ── */
+    .hiw-cta {
+      text-align: center;
+      padding: 40px 40px 70px;
+    }
+
+    .hiw-cta h2 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: #fff;
+      margin: 0 0 12px;
+    }
+
+    .hiw-cta p {
+      color: #9aa0b0;
+      margin: 0 0 24px;
+      font-size: 0.95rem;
+    }
+
+    .hiw-cta .btn-group {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    .btn-cta-primary {
+      background: #3af2ff;
+      color: #0f1115;
+      font-weight: 700;
+      padding: 12px 28px;
+      border-radius: 8px;
+      text-decoration: none;
+      font-size: 0.95rem;
+      transition: background 0.2s;
+    }
+
+    .btn-cta-primary:hover { background: #2dc8d8; }
+
+    .btn-cta-secondary {
+      background: transparent;
+      color: #3af2ff;
+      font-weight: 600;
+      padding: 12px 28px;
+      border-radius: 8px;
+      border: 1px solid #3af2ff;
+      text-decoration: none;
+      font-size: 0.95rem;
+      transition: background 0.2s;
+    }
+
+    .btn-cta-secondary:hover { background: rgba(58,242,255,0.08); }
+
+    @media (max-width: 640px) {
+      .hiw-steps, .hiw-faq { padding-left: 20px; padding-right: 20px; }
+      .hiw-step { flex-direction: column; gap: 14px; }
+      .hiw-hero h1 { font-size: 1.6rem; }
+    }
+  </style>
+</head>
+
+<body>
+
+<header class="main-header">
+  <div class="logo"><img src="images/logo.png" alt="Site Logo"></div>
+
+  <nav class="navbar">
+    <a href="index.html" class="nav-link">Home</a>
+
+    <div class="nav-dropdown">
+      <a href="#" class="nav-link dropdown-trigger" data-category="pistol">Pistols</a>
+      <div class="dropdown-menu" id="dropdown-pistol"></div>
+    </div>
+
+    <div class="nav-dropdown">
+      <a href="#" class="nav-link dropdown-trigger" data-category="smg">Mid-Tier</a>
+      <div class="dropdown-menu" id="dropdown-smg"></div>
+    </div>
+
+    <div class="nav-dropdown">
+      <a href="#" class="nav-link dropdown-trigger" data-category="rifle">Rifles</a>
+      <div class="dropdown-menu" id="dropdown-rifle"></div>
+    </div>
+
+    <div class="nav-dropdown">
+      <a href="#" class="nav-link dropdown-trigger" data-category="knife">Knives</a>
+      <div class="dropdown-menu" id="dropdown-knife"></div>
+    </div>
+
+    <div class="nav-dropdown">
+      <a href="#" class="nav-link dropdown-trigger" data-category="gloves">Gloves</a>
+      <div class="dropdown-menu" id="dropdown-gloves"></div>
+    </div>
+
+    <input type="text" placeholder="Search items" id="searchBar" />
+    <a href="how-it-works.html" class="nav-link active">How it works</a>
+  </nav>
+
+  <div class="avatar">
+    <a href="profile.html">
+      <img src="images/avatar.png" alt="User avatar" id="avatarBtn" />
+    </a>
+  </div>
+</header>
+
+<main>
+
+  <section class="hiw-hero">
+    <h1>How <span class="accent">CS2 Skin Tracker</span> Works</h1>
+    <p>Stop manually refreshing skin marketplaces. Set your criteria once and get notified the moment a matching listing appears.</p>
+  </section>
+
+  <section class="hiw-steps">
+
+    <div class="hiw-step">
+      <div class="hiw-step-number">1</div>
+      <div class="hiw-step-content">
+        <h3>Create a free account</h3>
+        <p>Sign up with a username, email and password. Your account stores your tracked items and notification settings so everything is saved between sessions.</p>
+      </div>
+    </div>
+
+    <div class="hiw-step">
+      <div class="hiw-step-number">2</div>
+      <div class="hiw-step-content">
+        <h3>Browse and find the skin you want</h3>
+        <p>Use the navigation menu or search bar to find any CS2 skin — rifles, pistols, knives, gloves and more. Click a skin to open its detail page where you can see current market prices across Skinport and DMarket.</p>
+      </div>
+    </div>
+
+    <div class="hiw-step">
+      <div class="hiw-step-number">3</div>
+      <div class="hiw-step-content">
+        <h3>Set your tracking criteria</h3>
+        <p>Click <strong>Track This Item</strong> on any skin page. You can set as many or as few filters as you want — or leave them blank to match any listing:</p>
+        <p style="margin-top:10px;">
+          <strong>Price range</strong> — only notify within a min/max budget<br>
+          <strong>Wear condition</strong> — Factory New, Field-Tested, etc.<br>
+          <strong>Float value</strong> — precise float range for a specific look<br>
+          <strong>StatTrak / Souvenir</strong> — require or exclude these variants<br>
+          <strong>Pattern number</strong> — for specific seeds like Blue Gem #661<br>
+          <strong>Doppler phase</strong> — Phase 2, Ruby, Sapphire, etc.
+        </p>
+        <div class="tip">💡 The more specific your criteria, the fewer (but more relevant) notifications you'll get.</div>
+      </div>
+    </div>
+
+    <div class="hiw-step">
+      <div class="hiw-step-number">4</div>
+      <div class="hiw-step-content">
+        <h3>Connect your Discord for notifications</h3>
+        <p>Go to your <strong>Profile page</strong> and scroll to Notification Settings. Paste a Discord webhook URL to receive match alerts directly in any Discord channel you choose.</p>
+        <div class="tip">💡 Don't have a webhook? In Discord: open a channel's settings → Integrations → Webhooks → New Webhook → Copy URL.</div>
+      </div>
+    </div>
+
+    <div class="hiw-step">
+      <div class="hiw-step-number">5</div>
+      <div class="hiw-step-content">
+        <h3>Get notified instantly when a match appears</h3>
+        <p>We monitor Skinport's live listing feed in real time. The moment a new listing appears that matches your criteria, you'll get a Discord notification showing the price, float, pattern, and a direct link to the listing — before most people even know it's there.</p>
+        <p style="margin-top: 10px;">When you first add a tracked item, we also scan all <strong>existing listings</strong> on Skinport and DMarket so you don't miss anything already available.</p>
+      </div>
+    </div>
+
+    <div class="hiw-step">
+      <div class="hiw-step-number">6</div>
+      <div class="hiw-step-content">
+        <h3>Manage your tracked items anytime</h3>
+        <p>Visit your <strong>Profile page</strong> to see all your tracked items, current matches, and their status. You can edit criteria, cancel tracking, or filter your list by status, price, wear, and more at any time.</p>
+      </div>
+    </div>
+
+  </section>
+
+  <section class="hiw-faq">
+    <h2>Common Questions</h2>
+
+    <div class="faq-item">
+      <p class="faq-q">How fast are notifications sent?</p>
+      <p class="faq-a">For brand new listings on Skinport, notifications are sent within seconds of the listing appearing — we're connected to Skinport's live feed. For existing listings and DMarket, we scan every 20 minutes.</p>
+    </div>
+
+    <div class="faq-item">
+      <p class="faq-q">What markets do you track?</p>
+      <p class="faq-a">Currently Skinport (live feed + existing listings) and DMarket (existing listings). We're working on expanding to more markets.</p>
+    </div>
+
+    <div class="faq-item">
+      <p class="faq-q">Will I get spammed with notifications?</p>
+      <p class="faq-a">No. You only get notified when a genuinely new listing appears that matches your criteria. Already-seen listings don't trigger repeat notifications. If a match gets sold, you'll get one notification letting you know it's gone.</p>
+    </div>
+
+    <div class="faq-item">
+      <p class="faq-q">What if I don't set a price range?</p>
+      <p class="faq-a">We'll match any listing for that skin regardless of price. If you're tracking something common like an AK-47 Redline with no criteria, you'll get a lot of notifications. We recommend setting at least a max price.</p>
+    </div>
+
+    <div class="faq-item">
+      <p class="faq-q">How do I create a Discord webhook?</p>
+      <p class="faq-a">In Discord, right click the channel you want notifications in → Edit Channel → Integrations → Webhooks → New Webhook → Copy Webhook URL. Paste that URL in your Profile under Notification Settings.</p>
+    </div>
+
+    <div class="faq-item">
+      <p class="faq-q">Can I track the same skin with different criteria?</p>
+      <p class="faq-a">Yes — you can add the same skin multiple times with different settings. For example, track an AWP Dragon Lore as both Field-Tested under $5,000 and Factory New under $12,000 as separate entries.</p>
+    </div>
+
+  </section>
+
+  <section class="hiw-cta">
+    <h2>Ready to start tracking?</h2>
+    <p>Find a skin, set your criteria, and never miss a deal again.</p>
+    <div class="btn-group">
+      <a href="index.html" class="btn-cta-primary">Browse Skins</a>
+      <a href="profile.html" class="btn-cta-secondary">My Profile</a>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <p>© 2025 CS2 Item Tracker | All rights reserved</p>
+</footer>
+
+<script src="js/api.js"></script>
+<script src="js/navigation.js" defer></script>
+
+</body>
+</html>
