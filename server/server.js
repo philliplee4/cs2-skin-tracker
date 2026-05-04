@@ -740,11 +740,18 @@ async function notifyUserOfRESTMatches(userId, trackedItem, matches) {
  * Check existing listings for ALL active tracked items
  */
 async function checkAllExistingListings() {
+  if (isScanning) {
+    console.log('⏭ Scan already in progress — skipping');
+    return;
+  }
+  isScanning = true;
   console.log('🔍 Scanning existing Skinport listings for all tracked items...');
 
   try {
     // Clear ALL old matches on startup (fresh start every time)
     await pool.query('DELETE FROM skinport_matches');
+    // Reset any 'found' items back to 'tracking' since we just cleared all matches
+    await pool.query("UPDATE tracked_items SET status = 'tracking', updated_at = NOW() WHERE status = 'found'");
     console.log('   Cleared old matches');
 
     const trackedResult = await pool.query(
@@ -814,6 +821,8 @@ async function checkAllExistingListings() {
     // DMarket scan is handled separately at startup with a longer delay
   } catch (error) {
     console.error('Error during initial scan:', error.message);
+  } finally {
+    isScanning = false;
   }
 }
 
@@ -1533,6 +1542,7 @@ app.get('/api/price-history', apiLimiter, async (req, res) => {
 let skinportConnected = false;
 let lastEventTime = null;
 let totalEventsProcessed = 0;
+let isScanning = false; // prevents overlapping scans during reconnect
 
 // Doppler finish catalog numbers for phase-specific matching
 const DOPPLER_PHASES = {
@@ -1565,27 +1575,24 @@ const WEAR_RANGES = {
  * Check if a Skinport sale listing matches a tracked item's criteria
  */
 function doesListingMatch(sale, tracked) {
-  // 1. Match weapon name (title in Skinport = weapon name)
-  const saleWeapon = (sale.title || '').toLowerCase();
-  const saleFamily = (sale.family || sale.name || '').toLowerCase();
+  // 1. Match weapon and skin name using marketHashName as the canonical source.
+  // This avoids false positives from loose includes() checks — e.g. "AK" matching "AK-47".
+  // marketHashName format: "AK-47 | Redline (Field-Tested)" or "★ Karambit | Doppler (Factory New)"
+  const marketName    = (sale.marketHashName || '').toLowerCase();
   const trackedWeapon = (tracked.weapon_name || '').toLowerCase();
-  const trackedSkin = (tracked.skin_name || '').toLowerCase();
+  const trackedSkin   = (tracked.skin_name || '').toLowerCase();
 
-  // Check weapon name match
-  if (!saleWeapon.includes(trackedWeapon) && !trackedWeapon.includes(saleWeapon)) {
-    // Also check marketHashName as fallback
-    const marketName = (sale.marketHashName || '').toLowerCase();
-    if (!marketName.includes(trackedWeapon)) {
-      return false;
-    }
-  }
+  // Build the expected base string and check it's present in the market hash name.
+  // We check weapon and skin separately so "AK-47" doesn't match "AK-47-S" etc.
+  const expectedBase = `${trackedWeapon} | ${trackedSkin}`.toLowerCase();
 
-  // Check skin name match (handle Doppler phases)
-  const skinNameMatch = saleFamily.includes(trackedSkin) || trackedSkin.includes(saleFamily);
-  if (!skinNameMatch) {
-    // Fallback: check marketHashName
-    const marketName = (sale.marketHashName || '').toLowerCase();
-    if (!marketName.includes(trackedSkin)) {
+  if (!marketName.includes(expectedBase)) {
+    // Fallback: check title + family for edge cases (knives with ★ prefix etc.)
+    const saleWeapon = (sale.title || '').toLowerCase();
+    const saleFamily = (sale.family || sale.name || '').toLowerCase();
+    const titleMatch = saleWeapon === trackedWeapon || saleWeapon.endsWith(trackedWeapon);
+    const familyMatch = saleFamily === trackedSkin || saleFamily.startsWith(trackedSkin);
+    if (!titleMatch || !familyMatch) {
       return false;
     }
   }
@@ -1665,37 +1672,64 @@ function doesListingMatch(sale, tracked) {
  */
 async function processSaleEvent(eventType, sales) {
   if (eventType === 'sold') {
-    // Remove sold listings from matches
+    // Track sold listings per user per tracked item for batched notifications
+    // Key: `${user_id}_${tracked_item_id}`, Value: { tracked, soldItems: [] }
+    const soldBatches = {};
+
     for (const sale of sales) {
       try {
         const deleted = await pool.query(
-          'DELETE FROM skinport_matches WHERE sale_id = $1 RETURNING tracked_item_id',
+          `DELETE FROM skinport_matches
+           WHERE sale_id = $1
+           RETURNING tracked_item_id, market_hash_name, sale_price, exterior, wear_float, phase`,
           [sale.saleId]
         );
 
         if (deleted.rows.length > 0) {
           console.log(`🔴 SOLD: ${sale.marketHashName} ($${(sale.salePrice/100).toFixed(2)}) — removed from matches`);
 
-          // Check if tracked item has any remaining matches
           for (const row of deleted.rows) {
+            // Check remaining matches for this tracked item
             const remaining = await pool.query(
               'SELECT COUNT(*) FROM skinport_matches WHERE tracked_item_id = $1',
               [row.tracked_item_id]
             );
+            const remainingCount = parseInt(remaining.rows[0].count);
 
-            if (parseInt(remaining.rows[0].count) === 0) {
-              // No more matches — set status back to tracking
+            if (remainingCount === 0) {
               await pool.query(
                 "UPDATE tracked_items SET status = 'tracking', updated_at = NOW() WHERE id = $1 AND status = 'found'",
                 [row.tracked_item_id]
               );
               console.log(`   ↩ Tracked item ${row.tracked_item_id} set back to TRACKING (no matches left)`);
             }
+
+            // Get the tracked item and user info for notification
+            const trackedResult = await pool.query(
+              'SELECT * FROM tracked_items WHERE id = $1',
+              [row.tracked_item_id]
+            );
+            if (trackedResult.rows.length === 0) continue;
+            const tracked = trackedResult.rows[0];
+
+            // Batch sold notifications per user per tracked item
+            const batchKey = `${tracked.user_id}_${tracked.id}`;
+            if (!soldBatches[batchKey]) {
+              soldBatches[batchKey] = { tracked, soldItems: [], remainingCount };
+            }
+            soldBatches[batchKey].soldItems.push(row);
+            soldBatches[batchKey].remainingCount = remainingCount;
           }
         }
       } catch (err) {
         console.error('Error processing sold event:', err.message);
       }
+    }
+
+    // Send batched sold notifications
+    for (const batch of Object.values(soldBatches)) {
+      notifyUserOfSoldMatches(batch.tracked.user_id, batch.tracked, batch.soldItems, batch.remainingCount)
+        .catch(err => console.error('Sold notification error:', err.message));
     }
     return;
   }
@@ -1829,9 +1863,18 @@ async function connectSkinportWebsocket() {
       console.error('❌ Skinport connection error:', error.message);
     });
 
-    // Reconnection handling
+    // Reconnection handling — scan for listings missed during the disconnect gap
     socket.io.on('reconnect', (attempt) => {
-      console.log(`🔄 Reconnected to Skinport (attempt ${attempt})`);
+      console.log(`🔄 Reconnected to Skinport (attempt ${attempt}) — scanning for missed listings...`);
+      // Force fresh data since we may have missed listings while disconnected
+      skinportItemsCache = null;
+      skinportCacheTime = null;
+      setTimeout(async () => {
+        await checkAllExistingListings();
+        setTimeout(() => {
+          checkAllDMarketListings().catch(err => console.error('DMarket reconnect scan error:', err.message));
+        }, 30000);
+      }, 3000); // small delay to let the connection stabilise
     });
 
     socket.io.on('reconnect_attempt', (attempt) => {
@@ -2039,9 +2082,10 @@ async function checkDMarketListingsForItem(trackedItem) {
 
     if (newMatches.length > 0) {
       console.log(`✅ DMarket: ${newMatches.length} new match(es) for ${trackedItem.weapon_name} | ${trackedItem.skin_name} (user ${trackedItem.user_id})`);
-      notifyUserOfDMarketMatches(trackedItem.user_id, trackedItem, newMatches).catch(err => {
-        console.error('DMarket notification error:', err.message);
-      });
+      // DMarket notifications disabled for now — Skinport only
+      // notifyUserOfDMarketMatches(trackedItem.user_id, trackedItem, newMatches).catch(err => {
+      //   console.error('DMarket notification error:', err.message);
+      // });
     }
   } catch (err) {
     console.error(`DMarket scan error for ${trackedItem.weapon_name} | ${trackedItem.skin_name}:`, err.message);
@@ -2150,6 +2194,58 @@ async function sendDMarketDiscordNotification(webhookUrl, trackedItem, listings)
   }
 
   await sendDiscordNotification(webhookUrl, embed);
+}
+
+/**
+ * Send a Discord notification when tracked matches get sold and removed.
+ * Batches all sold listings for a tracked item into one message.
+ */
+async function notifyUserOfSoldMatches(userId, trackedItem, soldItems, remainingCount) {
+  try {
+    const settings = await pool.query(
+      'SELECT * FROM notification_settings WHERE user_id = $1 AND enabled = true',
+      [userId]
+    );
+    if (settings.rows.length === 0) return;
+
+    const itemName = `${trackedItem.weapon_name} | ${trackedItem.skin_name}`;
+
+    const fields = soldItems.slice(0, 10).map((item, i) => {
+      const price = item.sale_price ? `$${parseFloat(item.sale_price).toFixed(2)}` : 'N/A';
+      const wear = item.exterior || 'Unknown';
+      const floatVal = item.wear_float ? parseFloat(item.wear_float).toFixed(4) : null;
+      const phase = item.phase ? ` (${item.phase})` : '';
+
+      return {
+        name: `${i + 1}. ${wear}${phase} — ${price}`,
+        value: floatVal ? `Float: ${floatVal}` : 'No float data',
+        inline: false
+      };
+    });
+
+    const noMatchesLeft = remainingCount === 0;
+
+    const embed = {
+      title: `❌ ${soldItems.length} match${soldItems.length === 1 ? '' : 'es'} sold for ${itemName}`,
+      description: noMatchesLeft
+        ? `All matches for this item have been sold. We'll notify you when new listings appear.`
+        : `${remainingCount} match${remainingCount === 1 ? '' : 'es'} still available. Check your profile for current listings.`,
+      color: 0xff4444,
+      fields,
+      footer: { text: 'CS2 Skin Tracker — Skinport' },
+      timestamp: new Date().toISOString()
+    };
+
+    for (const setting of settings.rows) {
+      if (setting.method === 'discord') {
+        await sendDiscordNotification(setting.value, embed).catch(err => {
+          console.error(`Sold notification Discord error for user ${userId}:`, err.message);
+        });
+      }
+    }
+  } catch (err) {
+    console.error('Error sending sold notifications:', err.message);
+  }
 }
 
 // ============================================
