@@ -675,10 +675,10 @@ async function checkExistingListingsForItem(trackedItem) {
     console.error('Error checking existing listings:', error.message);
   }
 
-  // Also check DMarket for this item (async, don't block)
-  checkDMarketListingsForItem(trackedItem).catch(err => {
-    console.error('DMarket check error for new item:', err.message);
-  });
+  // DMarket scanning disabled — Skinport only for tracking/notifications
+  // checkDMarketListingsForItem(trackedItem).catch(err => {
+  //   console.error('DMarket check error for new item:', err.message);
+  // });
 }
 
 /**
@@ -893,10 +893,10 @@ app.post('/api/matches/scan', requireAuth, scanLimiter, async (req, res) => {
       }
     }
 
-    // Also kick off a DMarket scan in the background (non-blocking so response returns quickly)
-    checkAllDMarketListings().catch(err => {
-      console.error('Manual DMarket scan error:', err.message);
-    });
+    // DMarket scanning disabled — Skinport only for tracking/notifications
+    // checkAllDMarketListings().catch(err => {
+    //   console.error('Manual DMarket scan error:', err.message);
+    // });
 
     res.json({ message: `Scan complete`, matches: totalMatches });
   } catch (error) {
@@ -1871,9 +1871,10 @@ async function connectSkinportWebsocket() {
       skinportCacheTime = null;
       setTimeout(async () => {
         await checkAllExistingListings();
-        setTimeout(() => {
-          checkAllDMarketListings().catch(err => console.error('DMarket reconnect scan error:', err.message));
-        }, 30000);
+        // DMarket scanning disabled — Skinport only for tracking/notifications
+        // setTimeout(() => {
+        //   checkAllDMarketListings().catch(err => console.error('DMarket reconnect scan error:', err.message));
+        // }, 30000);
       }, 3000); // small delay to let the connection stabilise
     });
 
@@ -2273,9 +2274,10 @@ setInterval(cleanupOldMatches, 60 * 60 * 1000);
 setInterval(async () => {
   await cleanupOldMatches();
   await checkAllExistingListings();
-  setTimeout(() => {
-    checkAllDMarketListings().catch(err => console.error('DMarket rescan error:', err.message));
-  }, 2 * 60 * 1000);
+  // DMarket scanning disabled — Skinport only for tracking/notifications
+  // setTimeout(() => {
+  //   checkAllDMarketListings().catch(err => console.error('DMarket rescan error:', err.message));
+  // }, 2 * 60 * 1000);
 }, 20 * 60 * 1000);
 
 // ============================================
@@ -2298,7 +2300,8 @@ app.listen(PORT, () => {
     await checkAllExistingListings();
   }, 5000);
 
-  setTimeout(async () => {
-    await checkAllDMarketListings();
-  }, 90000);
+  // DMarket scanning disabled — Skinport only for tracking/notifications
+  // setTimeout(async () => {
+  //   await checkAllDMarketListings();
+  // }, 90000);
 });

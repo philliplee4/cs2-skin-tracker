@@ -632,6 +632,9 @@ async function loadSkinportMatches() {
     // Fetch matches from server (found via websocket)
     const matches = await apiRequest('/matches');
 
+    // Filter out DMarket matches — shown on item page price pills only
+    const skinportMatches = matches.filter(m => m.source !== 'dmarket');
+
     // Also fetch websocket status
     let status = { connected: false };
     try {
@@ -639,7 +642,7 @@ async function loadSkinportMatches() {
       status = await statusRes.json();
     } catch (e) { /* ignore */ }
 
-    if (matches.length === 0) {
+    if (skinportMatches.length === 0) {
       container.innerHTML = `
         <div class="matches-empty">
           <div class="ws-status ${status.connected ? 'ws-connected' : 'ws-disconnected'}">
@@ -655,7 +658,7 @@ async function loadSkinportMatches() {
 
     // Group matches by tracked item
     const grouped = {};
-    for (const match of matches) {
+    for (const match of skinportMatches) {
       const key = match.tracked_item_id;
       if (!grouped[key]) grouped[key] = [];
       grouped[key].push(match);

@@ -226,7 +226,7 @@ async function loadDashboardSummary() {
     ]);
 
     const totalTracked  = tracked.length;
-    const totalMatches  = matches.length;
+    const totalMatches  = matches.filter(m => m.source !== 'dmarket').length;
     const stillTracking = tracked.filter(i => i.status === 'tracking').length;
 
     document.getElementById('dashTracked').textContent  = totalTracked;
