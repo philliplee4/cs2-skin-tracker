@@ -534,8 +534,11 @@ function doesRESTItemMatch(item, tracked) {
   const trackedWeapon = (tracked.weapon_name || '').toLowerCase();
   const trackedSkin = (tracked.skin_name || '').toLowerCase();
 
-  // Must contain both weapon and skin name
-  if (!itemName.includes(trackedWeapon) || !itemName.includes(trackedSkin)) {
+  // Match weapon + skin as a combined string (same as WebSocket matcher) to avoid
+  // false positives from two independent includes() — e.g. "ak-47" + "red" matching
+  // "AK-47 | Neon Rider" because both substrings happen to appear separately.
+  const expectedBase = `${trackedWeapon} | ${trackedSkin}`;
+  if (!itemName.includes(expectedBase)) {
     return false;
   }
 
@@ -618,7 +621,10 @@ async function checkExistingListingsForItem(trackedItem) {
 
     for (const item of items) {
       if (doesRESTItemMatch(item, trackedItem)) {
-        const fakeSaleId = -(Date.now() + Math.floor(Math.random() * 10000));
+        // Stable ID derived from the listing's market hash name so repeated scans
+        // never create duplicate rows or silent collisions from random negative IDs.
+        const _nameHash = item.market_hash_name.split('').reduce((a, c) => (a * 31 + c.charCodeAt(0)) | 0, 0);
+        const stableId = -(Math.abs(_nameHash) % 2_000_000_000 + 1);
 
         try {
           const result = await pool.query(
@@ -626,11 +632,13 @@ async function checkExistingListingsForItem(trackedItem) {
               (tracked_item_id, sale_id, market_hash_name, sale_price, suggested_price,
                wear_float, exterior, pattern, finish, stattrak, image_url, skinport_url, phase)
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
-             ON CONFLICT (tracked_item_id, sale_id) DO NOTHING
+             ON CONFLICT (tracked_item_id, sale_id) DO UPDATE SET
+               sale_price = EXCLUDED.sale_price,
+               suggested_price = EXCLUDED.suggested_price
              RETURNING id`,
             [
               trackedItem.id,
-              fakeSaleId,
+              stableId,
               item.market_hash_name,
               item.min_price || null,
               item.suggested_price || null,
@@ -648,6 +656,11 @@ async function checkExistingListingsForItem(trackedItem) {
           // Only count genuinely new rows
           if (result.rows.length > 0) {
             matchedItems.push(item);
+            // Mark tracked item as found so the UI reflects it immediately
+            await pool.query(
+              "UPDATE tracked_items SET status = 'found', updated_at = NOW() WHERE id = $1 AND status = 'tracking'",
+              [trackedItem.id]
+            );
           }
         } catch (dbErr) {
           if (dbErr.code !== '23505') {
@@ -748,11 +761,20 @@ async function checkAllExistingListings() {
   console.log('🔍 Scanning existing Skinport listings for all tracked items...');
 
   try {
-    // Clear ALL old matches on startup (fresh start every time)
-    await pool.query('DELETE FROM skinport_matches');
-    // Reset any 'found' items back to 'tracking' since we just cleared all matches
-    await pool.query("UPDATE tracked_items SET status = 'tracking', updated_at = NOW() WHERE status = 'found'");
-    console.log('   Cleared old matches');
+    // Only clear matches older than 30 minutes — avoids wiping another user's
+    // live matches every time the 20-minute rescan interval fires.
+    // Real-time WebSocket matches are kept; stale REST snapshot rows are pruned.
+    const cleared = await pool.query(
+      "DELETE FROM skinport_matches WHERE found_at < NOW() - INTERVAL '30 minutes' AND sale_id < 0"
+    );
+    // Reset 'found' status only for items that now have zero remaining matches
+    await pool.query(`
+      UPDATE tracked_items
+      SET status = 'tracking', updated_at = NOW()
+      WHERE status = 'found'
+        AND id NOT IN (SELECT DISTINCT tracked_item_id FROM skinport_matches)
+    `);
+    console.log(`   Cleared ${cleared.rowCount} stale REST match(es)`);
 
     const trackedResult = await pool.query(
       "SELECT * FROM tracked_items WHERE status = 'tracking'"
@@ -777,7 +799,8 @@ async function checkAllExistingListings() {
 
       for (const item of items) {
         if (doesRESTItemMatch(item, tracked)) {
-          const fakeSaleId = -(Date.now() + Math.floor(Math.random() * 100000));
+          const _nameHash2 = item.market_hash_name.split('').reduce((a, c) => (a * 31 + c.charCodeAt(0)) | 0, 0);
+          const stableId2 = -(Math.abs(_nameHash2) % 2_000_000_000 + 1);
 
           try {
             await pool.query(
@@ -785,10 +808,12 @@ async function checkAllExistingListings() {
                 (tracked_item_id, sale_id, market_hash_name, sale_price, suggested_price,
                  wear_float, exterior, pattern, finish, stattrak, image_url, skinport_url, phase)
                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
-               ON CONFLICT (tracked_item_id, sale_id) DO NOTHING`,
+               ON CONFLICT (tracked_item_id, sale_id) DO UPDATE SET
+                 sale_price = EXCLUDED.sale_price,
+                 suggested_price = EXCLUDED.suggested_price`,
               [
                 tracked.id,
-                fakeSaleId,
+                stableId2,
                 item.market_hash_name,
                 item.min_price || null,
                 item.suggested_price || null,
@@ -812,6 +837,10 @@ async function checkAllExistingListings() {
       }
 
       if (matchCount > 0) {
+        await pool.query(
+          "UPDATE tracked_items SET status = 'found', updated_at = NOW() WHERE id = $1 AND status = 'tracking'",
+          [tracked.id]
+        );
         console.log(`   ✅ ${tracked.weapon_name} | ${tracked.skin_name}: ${matchCount} match(es)`);
         totalMatches += matchCount;
       }
@@ -861,7 +890,8 @@ app.post('/api/matches/scan', requireAuth, scanLimiter, async (req, res) => {
     for (const tracked of trackedResult.rows) {
       for (const item of items) {
         if (doesRESTItemMatch(item, tracked)) {
-          const fakeSaleId = -(Date.now() + Math.floor(Math.random() * 100000));
+          const _nameHash3 = item.market_hash_name.split('').reduce((a, c) => (a * 31 + c.charCodeAt(0)) | 0, 0);
+          const stableId3 = -(Math.abs(_nameHash3) % 2_000_000_000 + 1);
 
           try {
             await pool.query(
@@ -869,10 +899,12 @@ app.post('/api/matches/scan', requireAuth, scanLimiter, async (req, res) => {
                 (tracked_item_id, sale_id, market_hash_name, sale_price, suggested_price,
                  wear_float, exterior, pattern, finish, stattrak, image_url, skinport_url, phase)
                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
-               ON CONFLICT (tracked_item_id, sale_id) DO NOTHING`,
+               ON CONFLICT (tracked_item_id, sale_id) DO UPDATE SET
+                 sale_price = EXCLUDED.sale_price,
+                 suggested_price = EXCLUDED.suggested_price`,
               [
                 tracked.id,
-                fakeSaleId,
+                stableId3,
                 item.market_hash_name,
                 item.min_price || null,
                 item.suggested_price || null,
@@ -1783,6 +1815,12 @@ async function processSaleEvent(eventType, sales) {
 
             // rowCount === 0 means it already existed — skip notification
             if (insertResult.rowCount === 0) continue;
+
+            // Mark the tracked item as found so the UI can reflect it
+            await pool.query(
+              "UPDATE tracked_items SET status = 'found', updated_at = NOW() WHERE id = $1 AND status = 'tracking'",
+              [tracked.id]
+            );
 
             console.log(`✅ MATCH: ${sale.marketHashName} ($${(sale.salePrice/100).toFixed(2)}) → tracked by user ${tracked.user_id}`);
 
