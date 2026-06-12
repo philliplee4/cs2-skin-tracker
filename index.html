@@ -81,10 +81,16 @@
 
   <section class="content">
 
-    <div class="grid" id="itemsGrid">
-
-
+    <div class="sort-bar" id="sortBar">
+      <span class="sort-label">Sort by:</span>
+      <button class="sort-btn active" data-sort="default">Default</button>
+      <button class="sort-btn" data-sort="name-asc">Name A→Z</button>
+      <button class="sort-btn" data-sort="name-desc">Name Z→A</button>
+      <button class="sort-btn" data-sort="rarity-asc">Rarity ↑</button>
+      <button class="sort-btn" data-sort="rarity-desc">Rarity ↓</button>
     </div>
+
+    <div class="grid" id="itemsGrid"></div>
   </section>
 </main>
 

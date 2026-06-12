@@ -555,3 +555,143 @@
     gap: 1rem;
   }
 }
+
+/* ── Match card variants ───────────────────────────────────────────────── */
+
+/* Live WebSocket card — left accent teal */
+.listing-card-live {
+  border-left: 3px solid #10b981;
+}
+
+/* REST scan card — left accent blue, slightly muted */
+.listing-card-scan {
+  border-left: 3px solid #3b82f6;
+  opacity: 0.92;
+}
+
+/* Availability badge (REST) */
+.availability-badge {
+  background: #1e3a5f;
+  color: #60a5fa;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  margin-left: 0.5rem;
+  white-space: nowrap;
+}
+
+/* "From $X" price layout */
+.price-from-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 0.2rem;
+}
+
+.price-from-label {
+  color: #9ca3af;
+  font-size: 0.85rem;
+}
+
+/* Price note — "Suggested $X · multiple listings" */
+.price-note {
+  font-size: 0.8rem;
+  color: #6b7280;
+  margin-top: 0.2rem;
+}
+
+/* Suggested price shown inline next to main price */
+.price-suggested {
+  text-decoration: line-through;
+  color: #6b7280;
+  font-size: 0.9rem;
+}
+
+/* Savings line */
+.price-savings {
+  display: block;
+  font-size: 0.8rem;
+  color: #10b981;
+  margin-top: 0.2rem;
+}
+
+/* Meta tags */
+.live-tag, .scan-tag {
+  font-size: 0.78rem;
+  color: #6b7280;
+}
+
+.live-tag::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #10b981;
+  margin-right: 5px;
+  vertical-align: middle;
+}
+
+.scan-tag::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #3b82f6;
+  margin-right: 5px;
+  vertical-align: middle;
+}
+
+/* Browse button variant — slightly different from the direct view button */
+.btn-view-skinport.btn-browse {
+  background: linear-gradient(135deg, #1e3a5f 0%, #1e3a8a 100%);
+}
+
+/* Phase, float, pattern, stattrak badges */
+.phase-badge {
+  background: #3b2a6e;
+  color: #c4b5fd;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+}
+
+.float-badge {
+  background: #1a2a1a;
+  color: #6ee7b7;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-family: monospace;
+}
+
+.pattern-badge {
+  background: #2a2020;
+  color: #fca5a5;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+}
+
+.stattrak-badge {
+  background: #451a03;
+  color: #fdba74;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+/* Phase unverified notice on REST Doppler cards */
+.phase-notice {
+  font-size: 0.78rem;
+  color: #f59e0b;
+  background: #2a1f00;
+  border: 1px solid #78460080;
+  border-radius: 4px;
+  padding: 0.4rem 0.6rem;
+  margin-bottom: 0.6rem;
+  line-height: 1.4;
+}

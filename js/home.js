@@ -5,6 +5,20 @@
 
 // Store all skins for filtering
 let allSkins = [];
+let activeCategory = 'all';
+let activeWeapon = null;
+let activeSort = 'default';
+
+// Rarity order for sorting (higher = rarer)
+const RARITY_ORDER = {
+  'Consumer Grade': 1,
+  'Industrial Grade': 2,
+  'Mil-Spec Grade': 3,
+  'Restricted': 4,
+  'Classified': 5,
+  'Covert': 6,
+  'Extraordinary': 7
+};
 
 // ============================================
 // Fetch and Render Skins
@@ -94,6 +108,76 @@ function createSkinCard(skin) {
   return card;
 }
 
+// Always returns the currently filtered set before sorting
+function getActiveBase() {
+  if (activeWeapon) {
+    return allSkins.filter(skin => skin.weapon?.name === activeWeapon);
+  }
+  if (activeCategory !== 'all') {
+    return allSkins.filter(skin => getCategoryFromSkin(skin) === activeCategory);
+  }
+  return allSkins;
+}
+
+function sortSkins(skins) {
+  const sorted = [...skins];
+  switch (activeSort) {
+    case 'name-asc':
+      return sorted.sort((a, b) => {
+        const nameA = `${a.weapon?.name || ''} ${a.pattern?.name || a.name || ''}`.toLowerCase();
+        const nameB = `${b.weapon?.name || ''} ${b.pattern?.name || b.name || ''}`.toLowerCase();
+        return nameA.localeCompare(nameB);
+      });
+    case 'name-desc':
+      return sorted.sort((a, b) => {
+        const nameA = `${a.weapon?.name || ''} ${a.pattern?.name || a.name || ''}`.toLowerCase();
+        const nameB = `${b.weapon?.name || ''} ${b.pattern?.name || b.name || ''}`.toLowerCase();
+        return nameB.localeCompare(nameA);
+      });
+    case 'rarity-asc':
+      return sorted.sort((a, b) => {
+        const rA = RARITY_ORDER[a.rarity?.name] || 0;
+        const rB = RARITY_ORDER[b.rarity?.name] || 0;
+        return rA - rB;
+      });
+    case 'rarity-desc':
+      return sorted.sort((a, b) => {
+        const rA = RARITY_ORDER[a.rarity?.name] || 0;
+        const rB = RARITY_ORDER[b.rarity?.name] || 0;
+        return rB - rA;
+      });
+    default:
+      return sorted; // keep shuffle order from initial load
+  }
+}
+
+function setupSortBar() {
+  const buttons = document.querySelectorAll('.sort-btn');
+  if (!buttons.length) return;
+
+  buttons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      buttons.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      activeSort = btn.dataset.sort;
+
+      const searchBar = document.getElementById('searchBar');
+      const query = searchBar?.value.toLowerCase().trim() || '';
+
+      let base = getActiveBase();
+
+      if (query) {
+        base = base.filter(skin => {
+          const fullName = `${skin.weapon?.name || ''} ${skin.pattern?.name || skin.name || ''}`.toLowerCase();
+          return fullName.includes(query);
+        });
+      }
+
+      renderSkins(sortSkins(base));
+    });
+  });
+}
+
 // Note: getCategoryFromWeapon is now in api.js
 
 // ============================================
@@ -112,21 +196,22 @@ function setupSearch() {
     
     debounceTimer = setTimeout(() => {
       const query = e.target.value.toLowerCase().trim();
-      
+
+      const base = getActiveBase();
+
       if (query === '') {
-        renderSkins(allSkins);
+        renderSkins(sortSkins(base));
         return;
       }
-      
-      const filtered = allSkins.filter(skin => {
+
+      const filtered = base.filter(skin => {
         const weaponName = (skin.weapon?.name || '').toLowerCase();
         const skinName = (skin.pattern?.name || skin.name || '').toLowerCase();
         const fullName = `${weaponName} ${skinName}`;
-        
         return fullName.includes(query);
       });
-      
-      renderSkins(filtered);
+
+      renderSkins(sortSkins(filtered));
     }, 300);
   });
 }
@@ -135,22 +220,18 @@ function setupSearch() {
 // Note: Helper functions (getCategoryFromWeapon, getCategoryDisplayName) are in api.js
 
 function filterByCategory(category) {
+  activeCategory = category;
+  activeWeapon = null;
   const filtered = allSkins.filter(skin => getCategoryFromSkin(skin) === category);
-
-  renderSkins(filtered);
-
-  // Update URL
+  renderSkins(sortSkins(filtered));
   history.pushState({}, '', `?category=${category}`);
 }
 
 function filterByWeapon(weaponName) {
-  const filtered = allSkins.filter(skin => {
-    return skin.weapon?.name === weaponName;
-  });
-
-  renderSkins(filtered);
-
-  // Update URL
+  activeWeapon = weaponName;
+  activeCategory = 'all';
+  const filtered = allSkins.filter(skin => skin.weapon?.name === weaponName);
+  renderSkins(sortSkins(filtered));
   const weaponSlug = weaponName.toLowerCase().replace(/\s+/g, '-');
   history.pushState({}, '', `?weapon=${weaponSlug}`);
 }
@@ -242,16 +323,18 @@ async function loadDashboardSummary() {
 document.addEventListener('DOMContentLoaded', async () => {
   await fetchSkins();
 
-  // Check if we need to filter based on URL parameters
   const hasFiltered = handleURLParameters();
 
-  // Only show random skins if no filter was applied
-  if (!hasFiltered) {
-    const randomizedSkins = shuffleArray(allSkins);
-    renderSkins(randomizedSkins);
+  if (hasFiltered) {
+    const params = new URLSearchParams(window.location.search);
+    const cat = params.get('category');
+    if (cat) activeCategory = cat;
+  } else {
+    renderSkins(shuffleArray(allSkins));
   }
 
   setupSearch();
+  setupSortBar();
   setupCategoryFilters();
   loadDashboardSummary();
 });

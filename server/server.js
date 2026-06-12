@@ -290,20 +290,51 @@ app.put('/api/tracked/:id', requireAuth, async (req, res) => {
   }
 });
 
+// Bulk routes MUST come before /:id routes so Express doesn't treat "bulk" as an ID
+
+// Bulk status update
+app.patch('/api/tracked/bulk/status', requireAuth, async (req, res) => {
+  const { status } = req.body;
+  if (!['tracking', 'found', 'cancelled'].includes(status)) {
+    return res.status(400).json({ error: 'Invalid status' });
+  }
+  try {
+    const result = await pool.query(
+      'UPDATE tracked_items SET status = $1, updated_at = NOW() WHERE user_id = $2 RETURNING id',
+      [status, req.session.userId]
+    );
+    res.json({ updated: result.rows.length });
+  } catch (error) {
+    console.error('Error bulk updating status:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Bulk delete cancelled
+app.delete('/api/tracked/bulk/cancelled', requireAuth, async (req, res) => {
+  try {
+    const result = await pool.query(
+      "DELETE FROM tracked_items WHERE user_id = $1 AND status = 'cancelled' RETURNING id",
+      [req.session.userId]
+    );
+    res.json({ deleted: result.rows.length });
+  } catch (error) {
+    console.error('Error bulk deleting cancelled:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // Delete a tracked item
 app.delete('/api/tracked/:id', requireAuth, async (req, res) => {
   const { id } = req.params;
-
   try {
     const result = await pool.query(
       'DELETE FROM tracked_items WHERE id = $1 AND user_id = $2 RETURNING id',
       [id, req.session.userId]
     );
-
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Item not found' });
     }
-
     res.json({ message: 'Item deleted' });
   } catch (error) {
     console.error('Error deleting tracked item:', error);
@@ -315,21 +346,17 @@ app.delete('/api/tracked/:id', requireAuth, async (req, res) => {
 app.patch('/api/tracked/:id/status', requireAuth, async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
-
   if (!['tracking', 'found', 'cancelled'].includes(status)) {
     return res.status(400).json({ error: 'Invalid status' });
   }
-
   try {
     const result = await pool.query(
       'UPDATE tracked_items SET status = $1, updated_at = NOW() WHERE id = $2 AND user_id = $3 RETURNING *',
       [status, id, req.session.userId]
     );
-
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Item not found' });
     }
-
     res.json(result.rows[0]);
   } catch (error) {
     console.error('Error updating status:', error);
@@ -337,9 +364,7 @@ app.patch('/api/tracked/:id/status', requireAuth, async (req, res) => {
   }
 });
 
-// ============================================
-// Skinport Matches Routes
-// ============================================
+
 
 // Get matches for current user
 app.get('/api/matches', requireAuth, async (req, res) => {
@@ -529,6 +554,24 @@ function fetchSkinportItemsREST() {
  * Check if a REST API item matches a tracked item
  * (REST API items have different fields than websocket items)
  */
+/**
+ * Convert a Skinport market_hash_name to a /item/ URL slug for knives and Dopplers.
+ * e.g. "★ Karambit | Gamma Doppler (Factory New)" → "karambit-gamma-doppler-factory-new"
+ * Falls back to a market search URL for regular skins.
+ */
+function skinportItemUrl(marketHashName) {
+  const isDoppler = marketHashName.toLowerCase().includes('doppler');
+
+  if (isDoppler) {
+    // Keep wear tier in search so results match the price shown on the card.
+    // All phases are shown naturally since Skinport doesn't filter by phase in URLs.
+    return `https://skinport.com/market?search=${encodeURIComponent(marketHashName)}&sort=price&order=asc`;
+  }
+
+  // Regular skins and non-Doppler knives — use full market hash name
+  return `https://skinport.com/market?search=${encodeURIComponent(marketHashName)}&sort=price&order=asc`;
+}
+
 function doesRESTItemMatch(item, tracked) {
   const itemName = (item.market_hash_name || '').toLowerCase();
   const trackedWeapon = (tracked.weapon_name || '').toLowerCase();
@@ -648,7 +691,7 @@ async function checkExistingListingsForItem(trackedItem) {
               null,
               item.market_hash_name ? item.market_hash_name.includes('StatTrak') : false,
               null,
-              `https://skinport.com/market?search=${encodeURIComponent(item.market_hash_name)}&sort=price&order=asc`,
+              skinportItemUrl(item.market_hash_name),
               null
             ]
           );
@@ -710,32 +753,56 @@ async function notifyUserOfRESTMatches(userId, trackedItem, matches) {
     const itemName = `${trackedItem.weapon_name} | ${trackedItem.skin_name}`;
 
     const fields = matches.slice(0, 10).map((match, i) => {
-      const price = match.min_price != null ? `$${match.min_price.toFixed(2)}` : 'N/A';
-      const suggested = match.suggested_price != null ? `$${match.suggested_price.toFixed(2)}` : null;
-      const url = `https://skinport.com/market?search=${encodeURIComponent(match.market_hash_name)}&sort=price&order=asc`;
+      const price     = match.min_price != null ? match.min_price : null;
+      const suggested = match.suggested_price != null ? match.suggested_price : null;
+      const priceStr  = price != null ? `$${price.toFixed(2)}` : 'N/A';
+      const discount  = price && suggested && suggested > price
+        ? Math.round(((suggested - price) / suggested) * 100) : null;
 
-      return {
-        name: `${i + 1}. ${match.market_hash_name} — ${price}`,
-        value: `${suggested ? `Suggested: ${suggested}\n` : ''}[View on Skinport](${url})`,
-        inline: false
-      };
+      // REST matches store wear in market_hash_name — parse it out
+      const hashName  = match.market_hash_name || '';
+      const wearMatch = hashName.match(/\((Factory New|Minimal Wear|Field-Tested|Well-Worn|Battle-Scarred)\)/);
+      const wear      = wearMatch ? wearMatch[1] : '';
+      const stattrak  = hashName.includes('StatTrak') ? 'StatTrak™ ' : '';
+      const url       = skinportItemUrl(hashName);
+
+      const discountStr = discount ? ` ⬇️ -${discount}%` : '';
+      const nameParts   = [stattrak + wear].filter(Boolean).join('');
+      const fieldName   = `${i + 1}. ${nameParts || hashName} — ${priceStr}${discountStr}`;
+
+      const valueLines = [];
+      if (suggested) valueLines.push(`💡 Suggested: $${suggested.toFixed(2)}`);
+      valueLines.push(`[🛒 View on Skinport](${url})`);
+
+      return { name: fieldName, value: valueLines.join('\n'), inline: false };
     });
 
-    const embed = {
-      title: `🎯 ${matches.length} existing listing${matches.length === 1 ? '' : 's'} found for ${itemName}`,
-      description: `These listings are already on Skinport and match your criteria.${matches.length > 10 ? `\n\n*Showing top 10 of ${matches.length}. Check your profile for all results.*` : ''}`,
-      color: 0x4ecdc4,
-      fields,
-      footer: { text: 'CS2 Skin Tracker — Skinport' },
-      timestamp: new Date().toISOString()
-    };
-
+    const prices    = matches.map(m => m.min_price).filter(Boolean);
+    const cheapest  = prices.length ? Math.min(...prices) : null;
+    const descLines = [];
     if (trackedItem.min_price || trackedItem.max_price) {
       const range = trackedItem.min_price && trackedItem.max_price
-        ? `$${trackedItem.min_price} - $${trackedItem.max_price}`
-        : trackedItem.min_price ? `From $${trackedItem.min_price}` : `Up to $${trackedItem.max_price}`;
-      embed.description = `Target price range: ${range}\n\n` + embed.description;
+        ? `$${trackedItem.min_price} – $${trackedItem.max_price}`
+        : trackedItem.min_price ? `≥ $${trackedItem.min_price}` : `≤ $${trackedItem.max_price}`;
+      descLines.push(`🎯 Your target range: **${range}**`);
     }
+    if (cheapest)            descLines.push(`💰 Cheapest listing: **$${cheapest.toFixed(2)}**`);
+    if (matches.length > 10) descLines.push(`*Showing top 10 of ${matches.length} — check your profile for all results.*`);
+    descLines.push(`These listings are already on Skinport and match your criteria.`);
+
+    const isDoppler = itemName.toLowerCase().includes('doppler');
+    if (isDoppler) {
+      descLines.push(`⚠️ All Doppler phases included — REST scan cannot filter by phase. WebSocket will notify you when your specific phase appears live.`);
+    }
+
+    const embed = {
+      title:       `🔍 ${matches.length} listing${matches.length === 1 ? '' : 's'} available · ${itemName}`,
+      description: descLines.join('\n'),
+      color:       isDoppler ? 0xf59e0b : 0x4ecdc4,
+      fields,
+      footer:      { text: isDoppler ? 'CS2 Skin Tracker · Market Scan (Phase Unverified)' : 'CS2 Skin Tracker · Skinport Market Scan' },
+      timestamp:   new Date().toISOString()
+    };
 
     for (const setting of settings.rows) {
       if (setting.method === 'discord') {
@@ -823,7 +890,7 @@ async function checkAllExistingListings() {
                 null,
                 item.market_hash_name ? item.market_hash_name.includes('StatTrak') : false,
                 null,
-                `https://skinport.com/market?search=${encodeURIComponent(item.market_hash_name)}&sort=price&order=asc`,
+                skinportItemUrl(item.market_hash_name),
                 null
               ]
             );
@@ -911,7 +978,7 @@ app.post('/api/matches/scan', requireAuth, scanLimiter, async (req, res) => {
                 null, null, null, null,
                 item.market_hash_name ? item.market_hash_name.includes('StatTrak') : false,
                 null,
-                `https://skinport.com/market?search=${encodeURIComponent(item.market_hash_name)}&sort=price&order=asc`,
+                skinportItemUrl(item.market_hash_name),
                 null
               ]
             );
@@ -1118,46 +1185,57 @@ async function notifyUserOfMatches(userId, trackedItem, matches) {
 async function sendMatchDiscordNotification(webhookUrl, trackedItem, matches) {
   const itemName = `${trackedItem.weapon_name} | ${trackedItem.skin_name}`;
 
-  // Build fields for each match (max 25 per embed)
+  // Build fields for each match — full details per listing
   const fields = matches.slice(0, 10).map((match, i) => {
-    const price = match.salePrice ? `$${(match.salePrice / 100).toFixed(2)}` : 'N/A';
-    const wear = match.exterior || 'Unknown';
-    const floatVal = match.wear != null ? parseFloat(match.wear).toFixed(4) : '';
-    const phase = DOPPLER_PHASES[match.finish] ? ` (${DOPPLER_PHASES[match.finish]})` : '';
-    const stattrak = match.stattrak ? ' StatTrak™' : '';
-    // Build URL from slug if available, fall back to search URL
-    const url = match.url
-      ? `https://skinport.com/item/${match.url}`
-      : `https://skinport.com/market?search=${encodeURIComponent(itemName)}&sort=price&order=asc`;
+    const price     = match.salePrice ? (match.salePrice / 100) : null;
+    const suggested = match.suggestedPrice ? (match.suggestedPrice / 100) : null;
+    const priceStr  = price != null ? `$${price.toFixed(2)}` : 'N/A';
+    const discount  = price && suggested && suggested > price
+      ? Math.round(((suggested - price) / suggested) * 100) : null;
 
-    return {
-      name: `${i + 1}. ${wear}${phase}${stattrak} — ${price}`,
-      value: `${floatVal ? `Float: ${floatVal}\n` : ''}[View on Skinport](${url})`,
-      inline: false
-    };
+    const wear     = match.exterior || '';
+    const phase    = DOPPLER_PHASES[match.finish] ? DOPPLER_PHASES[match.finish] : '';
+    const stattrak = match.stattrak ? 'StatTrak™ ' : '';
+    const floatVal = match.wear != null ? parseFloat(match.wear).toFixed(4) : null;
+    const pattern  = match.pattern != null ? `Pattern #${match.pattern}` : null;
+    const url      = match.url
+      ? `https://skinport.com/item/${match.url}`
+      : skinportItemUrl(itemName);
+
+    const discountStr = discount ? ` ⬇️ -${discount}%` : '';
+    const nameParts   = [stattrak + wear, phase].filter(Boolean).join(' · ');
+    const fieldName   = `${i + 1}. ${nameParts || itemName} — ${priceStr}${discountStr}`;
+
+    const valueLines = [];
+    if (floatVal)  valueLines.push(`🔬 Float: \`${floatVal}\``);
+    if (pattern)   valueLines.push(`🎨 ${pattern}`);
+    if (suggested) valueLines.push(`💡 Suggested: $${suggested.toFixed(2)}`);
+    valueLines.push(`[🛒 View on Skinport](${url})`);
+
+    return { name: fieldName, value: valueLines.join('\n'), inline: false };
   });
 
-  const embed = {
-    title: `🎯 Found ${matches.length} match${matches.length === 1 ? '' : 'es'} for ${itemName}`,
-    color: 0x4ecdc4, // Teal color matching your site
-    fields: fields,
-    footer: {
-      text: 'CS2 Skin Tracker — Skinport Live Feed'
-    },
-    timestamp: new Date().toISOString()
-  };
-
-  // Add price range info
+  // Summary line — cheapest match + target range
+  const prices   = matches.map(m => m.salePrice ? m.salePrice / 100 : null).filter(Boolean);
+  const cheapest = prices.length ? Math.min(...prices) : null;
+  const descLines = [];
   if (trackedItem.min_price || trackedItem.max_price) {
     const range = trackedItem.min_price && trackedItem.max_price
-      ? `$${trackedItem.min_price} - $${trackedItem.max_price}`
-      : trackedItem.min_price ? `From $${trackedItem.min_price}` : `Up to $${trackedItem.max_price}`;
-    embed.description = `Target price range: ${range}`;
+      ? `$${trackedItem.min_price} – $${trackedItem.max_price}`
+      : trackedItem.min_price ? `≥ $${trackedItem.min_price}` : `≤ $${trackedItem.max_price}`;
+    descLines.push(`🎯 Your target range: **${range}**`);
   }
+  if (cheapest)          descLines.push(`💰 Cheapest match: **$${cheapest.toFixed(2)}**`);
+  if (matches.length > 10) descLines.push(`*Showing top 10 of ${matches.length} — check your profile for all results.*`);
 
-  if (matches.length > 10) {
-    embed.description = (embed.description || '') + `\n\n*Showing top 10 of ${matches.length} matches. Check your profile for all results.*`;
-  }
+  const embed = {
+    title:       `🎯 ${matches.length} match${matches.length === 1 ? '' : 'es'} · ${itemName}`,
+    color:       0x4ecdc4,
+    description: descLines.length ? descLines.join('\n') : null,
+    fields,
+    footer:      { text: 'CS2 Skin Tracker · Skinport Live Feed' },
+    timestamp:   new Date().toISOString()
+  };
 
   await sendDiscordNotification(webhookUrl, embed);
 }
@@ -1320,7 +1398,7 @@ app.get('/api/market-prices', async (req, res) => {
         skinportResult = {
           price: Math.min(...prices),
           count: matches.length,
-          url: `https://skinport.com/market?search=${encodeURIComponent(searchName)}&sort=price&order=asc`
+          url: skinportItemUrl(searchName)
         };
       }
     }

@@ -146,12 +146,24 @@
 
     <div class="content-header">
       <h2>Tracked Items</h2>
-      <div class="filter-buttons">
-        <button class="filter-btn active" data-filter="all">All</button>
-        <button class="filter-btn" data-filter="found">Found</button>
-        <button class="filter-btn" data-filter="tracking">Tracking</button>
-        <button class="filter-btn" data-filter="cancelled">Cancelled</button>
-        <button class="filter-btn filter-advanced-btn" id="advancedFilterBtn">⚙ Filter</button>
+      <div class="header-actions">
+        <div class="filter-buttons">
+          <button class="filter-btn active" data-filter="all">All</button>
+          <button class="filter-btn" data-filter="found">Found</button>
+          <button class="filter-btn" data-filter="tracking">Tracking</button>
+          <button class="filter-btn" data-filter="cancelled">Cancelled</button>
+          <button class="filter-btn filter-advanced-btn" id="advancedFilterBtn">⚙ Filter</button>
+        </div>
+        <div class="bulk-actions">
+          <button class="bulk-btn" id="bulkActionsBtn">⚡ Bulk Actions ▾</button>
+          <div class="bulk-dropdown hidden" id="bulkDropdown">
+            <button class="bulk-option" data-action="tracking">Set all to Tracking</button>
+            <button class="bulk-option" data-action="found">Set all to Found</button>
+            <button class="bulk-option" data-action="cancelled">Cancel all</button>
+            <div class="bulk-divider"></div>
+            <button class="bulk-option bulk-danger" data-action="delete-cancelled">Delete all cancelled</button>
+          </div>
+        </div>
       </div>
     </div>
 

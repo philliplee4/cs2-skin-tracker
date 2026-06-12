@@ -750,55 +750,103 @@ async function loadSkinportMatches() {
  */
 function createMatchCard(match) {
   const card = document.createElement('div');
-  card.className = 'skinport-listing-card';
 
-  const price = match.sale_price ? parseFloat(match.sale_price) : 0;
-  const suggestedPrice = match.suggested_price ? parseFloat(match.suggested_price) : 0;
-  const discount = suggestedPrice > 0 ? Math.round(((suggestedPrice - price) / suggestedPrice) * 100) : 0;
-  const hasDiscount = discount > 0;
-
+  const isRESTMatch = match.sale_id < 0;   // negative IDs = REST scan, positive = WebSocket live listing
+  const price     = match.sale_price ? parseFloat(match.sale_price) : 0;
+  const suggested = match.suggested_price ? parseFloat(match.suggested_price) : 0;
+  const discount  = suggested > 0 && price > 0
+    ? Math.round(((suggested - price) / suggested) * 100) : 0;
+  const savings   = discount > 0 ? (suggested - price).toFixed(2) : null;
   const wearFloat = match.wear_float ? parseFloat(match.wear_float).toFixed(4) : null;
-  const foundTime = match.found_at ? new Date(match.found_at).toLocaleTimeString() : '';
+  const timeLabel = match.found_at
+    ? new Date(match.found_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+    : '';
 
-  card.innerHTML = `
-    <div class="listing-header">
-      <h4 class="listing-name">${match.market_hash_name || 'Unknown Item'}</h4>
-      ${hasDiscount ? `<span class="discount-badge">-${discount}%</span>` : ''}
-    </div>
+  if (isRESTMatch) {
+    // ── REST scan card — aggregate snapshot, no individual float ──────────────
+    card.className = 'skinport-listing-card listing-card-scan';
 
-    <div class="listing-info">
-      ${match.exterior ? `<span class="wear-badge">${match.exterior}</span>` : ''}
-      ${match.phase ? `<span class="phase-badge">${match.phase}</span>` : ''}
-      ${wearFloat ? `<span class="float-badge">Float: ${wearFloat}</span>` : ''}
-      ${match.pattern ? `<span class="pattern-badge">Pattern: ${match.pattern}</span>` : ''}
-      ${match.stattrak ? `<span class="stattrak-badge">StatTrak™</span>` : ''}
-    </div>
+    const badges = [];
+    if (match.stattrak)  badges.push(`<span class="stattrak-badge">StatTrak™</span>`);
+    if (match.exterior)  badges.push(`<span class="wear-badge">${match.exterior}</span>`);
 
-    <div class="listing-price">
-      <div class="current-price">
-        <span class="price-label">Price:</span>
-        <span class="price-value">$${price.toFixed(2)}</span>
+    const isDoppler = (match.market_hash_name || '').toLowerCase().includes('doppler');
+
+    card.innerHTML = `
+      <div class="listing-header">
+        <h4 class="listing-name">${match.market_hash_name || 'Unknown Item'}</h4>
+        <span class="availability-badge">Available now</span>
       </div>
-      ${suggestedPrice && suggestedPrice !== price ? `
-        <div class="suggested-price">
-          <span class="price-label">Suggested:</span>
-          <span class="price-value strikethrough">$${suggestedPrice.toFixed(2)}</span>
+
+      ${badges.length ? `<div class="listing-info">${badges.join('')}</div>` : ''}
+
+      ${isDoppler ? `
+        <div class="phase-notice">
+          ⚠️ All Doppler phases included — check listing for your specific phase.
         </div>
       ` : ''}
-    </div>
 
-    <div class="listing-meta">
-      <span class="found-time">Found: ${foundTime}</span>
-    </div>
+      <div class="listing-price">
+        <div class="price-from-row">
+          <span class="price-from-label">From</span>
+          <span class="price-value">$${price.toFixed(2)}</span>
+        </div>
+        ${suggested ? `<div class="price-note">Suggested $${suggested.toFixed(2)} · multiple listings available</div>` : ''}
+      </div>
 
-    <div class="listing-actions">
-      ${match.skinport_url ? `
-        <a href="${match.skinport_url}" target="_blank" rel="noopener noreferrer" class="btn-view-skinport">
-          ${match.source === 'dmarket' ? 'View on DMarket' : 'View on Skinport'}
-        </a>
-      ` : ''}
-    </div>
-  `;
+      <div class="listing-meta">
+        <span class="scan-tag">Market scan · ${timeLabel}</span>
+      </div>
+
+      <div class="listing-actions">
+        ${match.skinport_url ? `
+          <a href="${match.skinport_url}" target="_blank" rel="noopener noreferrer" class="btn-view-skinport btn-browse">
+            ${isDoppler ? 'Browse all phases on Skinport' : 'Browse listings on Skinport'}
+          </a>
+        ` : ''}
+      </div>
+    `;
+
+  } else {
+    // ── WebSocket live card — exact listing with float, pattern, phase ────────
+    card.className = 'skinport-listing-card listing-card-live';
+
+    const badges = [];
+    if (match.stattrak)        badges.push(`<span class="stattrak-badge">StatTrak™</span>`);
+    if (match.exterior)        badges.push(`<span class="wear-badge">${match.exterior}</span>`);
+    if (match.phase)           badges.push(`<span class="phase-badge">${match.phase}</span>`);
+    if (wearFloat)             badges.push(`<span class="float-badge">Float: ${wearFloat}</span>`);
+    if (match.pattern != null) badges.push(`<span class="pattern-badge">Pattern #${match.pattern}</span>`);
+
+    card.innerHTML = `
+      <div class="listing-header">
+        <h4 class="listing-name">${match.market_hash_name || 'Unknown Item'}</h4>
+        ${discount > 0 ? `<span class="discount-badge">-${discount}% below suggested</span>` : ''}
+      </div>
+
+      ${badges.length ? `<div class="listing-info">${badges.join('')}</div>` : ''}
+
+      <div class="listing-price">
+        <div class="current-price">
+          <span class="price-value">$${price.toFixed(2)}</span>
+          ${suggested && suggested !== price ? `<span class="price-suggested">$${suggested.toFixed(2)}</span>` : ''}
+        </div>
+        ${savings ? `<span class="price-savings">Save $${savings}</span>` : ''}
+      </div>
+
+      <div class="listing-meta">
+        <span class="live-tag">Live listing · ${timeLabel}</span>
+      </div>
+
+      <div class="listing-actions">
+        ${match.skinport_url ? `
+          <a href="${match.skinport_url}" target="_blank" rel="noopener noreferrer" class="btn-view-skinport">
+            View on Skinport
+          </a>
+        ` : ''}
+      </div>
+    `;
+  }
 
   return card;
 }
@@ -984,6 +1032,68 @@ function setupNotificationListeners() {
 // Initialize
 // ============================================
 
+function setupBulkActions() {
+  const btn     = document.getElementById('bulkActionsBtn');
+  const dropdown = document.getElementById('bulkDropdown');
+  if (!btn || !dropdown) return;
+
+  // Toggle dropdown
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    dropdown.classList.toggle('hidden');
+  });
+
+  // Close when clicking outside
+  document.addEventListener('click', () => dropdown.classList.add('hidden'));
+
+  // Handle each option
+  dropdown.querySelectorAll('.bulk-option').forEach(option => {
+    option.addEventListener('click', async () => {
+      dropdown.classList.add('hidden');
+      const action = option.dataset.action;
+
+      if (action === 'delete-cancelled') {
+        if (!confirm('Delete all cancelled items? This cannot be undone.')) return;
+        try {
+          const res = await apiRequest('/tracked/bulk/cancelled', { method: 'DELETE' });
+          showToast(`Deleted ${res.deleted} cancelled item(s)`);
+          await loadTrackedItems();
+        } catch (e) {
+          showToast('Failed to delete cancelled items', 'error');
+        }
+        return;
+      }
+
+      // Set all to tracking / found / cancelled
+      const label = { tracking: 'Tracking', found: 'Found', cancelled: 'Cancelled' }[action];
+      if (!confirm(`Set all tracked items to "${label}"?`)) return;
+      try {
+        const res = await apiRequest('/tracked/bulk/status', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: action })
+        });
+        showToast(`Updated ${res.updated} item(s) to ${label}`);
+        await loadTrackedItems();
+      } catch (e) {
+        showToast('Failed to update items', 'error');
+      }
+    });
+  });
+}
+
+function showToast(message, type = 'success') {
+  const existing = document.getElementById('bulk-toast');
+  if (existing) existing.remove();
+
+  const toast = document.createElement('div');
+  toast.id = 'bulk-toast';
+  toast.className = `bulk-toast bulk-toast-${type}`;
+  toast.textContent = message;
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 3000);
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
   const user = await checkAuth();
   if (!user) return;
@@ -1007,6 +1117,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   await loadTrackedItems();
   setupFilters();
+  setupBulkActions();
   setupEditModalListeners();
   setupRefreshButton();
   await loadNotificationSettings();
