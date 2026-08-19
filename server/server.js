@@ -559,19 +559,6 @@ function fetchSkinportItemsREST() {
  * e.g. "★ Karambit | Gamma Doppler (Factory New)" → "karambit-gamma-doppler-factory-new"
  * Falls back to a market search URL for regular skins.
  */
-function skinportItemUrl(marketHashName) {
-  const isDoppler = marketHashName.toLowerCase().includes('doppler');
-
-  if (isDoppler) {
-    // Keep wear tier in search so results match the price shown on the card.
-    // All phases are shown naturally since Skinport doesn't filter by phase in URLs.
-    return `https://skinport.com/market?search=${encodeURIComponent(marketHashName)}&sort=price&order=asc`;
-  }
-
-  // Regular skins and non-Doppler knives — use full market hash name
-  return `https://skinport.com/market?search=${encodeURIComponent(marketHashName)}&sort=price&order=asc`;
-}
-
 function doesRESTItemMatch(item, tracked) {
   const itemName = (item.market_hash_name || '').toLowerCase();
   const trackedWeapon = (tracked.weapon_name || '').toLowerCase();
@@ -691,7 +678,7 @@ async function checkExistingListingsForItem(trackedItem) {
               null,
               item.market_hash_name ? item.market_hash_name.includes('StatTrak') : false,
               null,
-              skinportItemUrl(item.market_hash_name),
+              `https://skinport.com/market?search=${encodeURIComponent(item.market_hash_name)}&sort=price&order=asc`,
               null
             ]
           );
@@ -764,7 +751,7 @@ async function notifyUserOfRESTMatches(userId, trackedItem, matches) {
       const wearMatch = hashName.match(/\((Factory New|Minimal Wear|Field-Tested|Well-Worn|Battle-Scarred)\)/);
       const wear      = wearMatch ? wearMatch[1] : '';
       const stattrak  = hashName.includes('StatTrak') ? 'StatTrak™ ' : '';
-      const url       = skinportItemUrl(hashName);
+      const url       = `https://skinport.com/market?search=${encodeURIComponent(hashName)}&sort=price&order=asc`;
 
       const discountStr = discount ? ` ⬇️ -${discount}%` : '';
       const nameParts   = [stattrak + wear].filter(Boolean).join('');
@@ -890,7 +877,7 @@ async function checkAllExistingListings() {
                 null,
                 item.market_hash_name ? item.market_hash_name.includes('StatTrak') : false,
                 null,
-                skinportItemUrl(item.market_hash_name),
+                `https://skinport.com/market?search=${encodeURIComponent(item.market_hash_name)}&sort=price&order=asc`,
                 null
               ]
             );
@@ -978,7 +965,7 @@ app.post('/api/matches/scan', requireAuth, scanLimiter, async (req, res) => {
                 null, null, null, null,
                 item.market_hash_name ? item.market_hash_name.includes('StatTrak') : false,
                 null,
-                skinportItemUrl(item.market_hash_name),
+                `https://skinport.com/market?search=${encodeURIComponent(item.market_hash_name)}&sort=price&order=asc`,
                 null
               ]
             );
@@ -1200,7 +1187,7 @@ async function sendMatchDiscordNotification(webhookUrl, trackedItem, matches) {
     const pattern  = match.pattern != null ? `Pattern #${match.pattern}` : null;
     const url      = match.url
       ? `https://skinport.com/item/${match.url}`
-      : skinportItemUrl(itemName);
+      : `https://skinport.com/market?search=${encodeURIComponent(itemName)}&sort=price&order=asc`;
 
     const discountStr = discount ? ` ⬇️ -${discount}%` : '';
     const nameParts   = [stattrak + wear, phase].filter(Boolean).join(' · ');
@@ -1398,7 +1385,7 @@ app.get('/api/market-prices', async (req, res) => {
         skinportResult = {
           price: Math.min(...prices),
           count: matches.length,
-          url: skinportItemUrl(searchName)
+          url: `https://skinport.com/market?search=${encodeURIComponent(searchName)}&sort=price&order=asc`
         };
       }
     }
